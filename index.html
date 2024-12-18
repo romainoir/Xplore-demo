@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="icon.png">
     <title>MapLibre Terrain Visualization</title>
     <link href="https://unpkg.com/maplibre-gl@v5.0.0-pre.9/dist/maplibre-gl.css" rel="stylesheet" />
     <script src="https://unpkg.com/maplibre-gl@v5.0.0-pre.9/dist/maplibre-gl.js"></script>
@@ -836,16 +840,16 @@ function deg2rad(deg) {
 // =====================
 
 const CONFIG = {
-    PATH_SEARCH_RADIUS: 0.05,      // 50m
+    PATH_SEARCH_RADIUS: 0.01,      // 50m
     NODE_CONNECTION_TOLERANCE: 0.01, // 10m
-    MAX_ROUTE_DISTANCE: 10.0,        // 10km
+    MAX_ROUTE_DISTANCE: 3.0,        // 3km
     CORRIDOR_BUFFER_DISTANCE: 0.03,  // 20m
     POI_SEARCH_BUFFER: 0.03,        // 20m
     DUPLICATE_POI_THRESHOLD: 0.05,
-    INITIAL_SEARCH_AREA_RADIUS: 0.01,
+    INITIAL_SEARCH_AREA_RADIUS: 0.02,
     MIN_POI_DISTANCE: 0.1, // 100 meters minimum distance from signpost
     EDGES_PER_DIRECTION: 3,        // Number of initial edges to consider per direction
-    MIN_SEGMENT_LENGTH: 0.01       // Minimum segment length to consider (10m)
+    MIN_SEGMENT_LENGTH: 0.02       // Minimum segment length to consider (20m)
 };
 
 const DEBUG = {
@@ -965,76 +969,6 @@ function validateDirectionCalculation(startPoint, coords, direction) {
     }
 }
 
-
-function insertSignpostNode(lineFeatures, signpostPoint) {
-    let closestFeature = null;
-    let minDist = Infinity;
-    
-    for (const f of lineFeatures) {
-        if (!f.geometry || f.geometry.type !== 'LineString') continue;
-        const line = turf.lineString(f.geometry.coordinates);
-        const nearest = turf.nearestPointOnLine(line, turf.point([signpostPoint.lng, signpostPoint.lat]));
-        const dist = nearest.properties.dist;
-        if (dist < minDist) {
-            minDist = dist;
-            closestFeature = f;
-        }
-    }
-
-    if (!closestFeature) {
-        if (DEBUG.enabled) {
-            console.warn('No closest line found for signpost');
-        }
-        return lineFeatures;
-    }
-
-    const line = turf.lineString(closestFeature.geometry.coordinates);
-    const nearest = turf.nearestPointOnLine(line, turf.point([signpostPoint.lng, signpostPoint.lat]));
-    const location = nearest.properties.location;
-    const lineLength = turf.length(line, { units: 'kilometers' });
-
-    if (location > 0 && location < lineLength) {
-        const part1 = turf.lineSliceAlong(line, 0, location, { units: 'kilometers' });
-        const part2 = turf.lineSliceAlong(line, location, lineLength, { units: 'kilometers' });
-        part1.properties = { ...closestFeature.properties };
-        part2.properties = { ...closestFeature.properties };
-
-        const index = lineFeatures.indexOf(closestFeature);
-        if (index !== -1) {
-            lineFeatures.splice(index, 1, part1, part2);
-        }
-    }
-
-    return lineFeatures;
-}
-
-function findOrCreateNode(nodes, coord) {
-    const coordPoint = turf.point(coord);
-    let closestNodeIndex = null;
-    let minDist = Infinity;
-
-    for (let i = 0; i < nodes.length; i++) {
-        const dist = turf.distance(coordPoint, turf.point(nodes[i]), { units: 'kilometers' });
-        if (dist < CONFIG.NODE_CONNECTION_TOLERANCE && dist < minDist) {
-            minDist = dist;
-            closestNodeIndex = i;
-        }
-    }
-
-    if (closestNodeIndex !== null) {
-        if (DEBUG.enabled) {
-            console.log(`Reusing existing node ${closestNodeIndex} at distance ${minDist.toFixed(5)}km`);
-        }
-        return closestNodeIndex;
-    } else {
-        const newIndex = nodes.length;
-        nodes.push(coord);
-        if (DEBUG.enabled) {
-            console.log(`Created new node ${newIndex} at [${coord}]`);
-        }
-        return newIndex;
-    }
-}
 
 function findClosestNode(point, nodes) {
     let closestNode = null;
@@ -1181,83 +1115,280 @@ function combineCoords(a, b) {
 // =====================
 function findOrCreateNodeWithFusion(nodes, coord, edges) {
     const coordPoint = turf.point(coord);
-    let closestNodeIndex = null;
-    let minDist = Infinity;
+    const debugInfo = {
+        coord: coord,
+        nearbyNodes: [],
+        nearbyPaths: [],
+        intersectionDetails: [],
+        creationReason: '',
+        decisionPath: []
+    };
 
     // First check existing nodes
     for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i] === null) continue;
         const dist = turf.distance(coordPoint, turf.point(nodes[i]), { units: 'kilometers' });
-        if (dist < CONFIG.NODE_CONNECTION_TOLERANCE && dist < minDist) {
+        if (dist < CONFIG.NODE_CONNECTION_TOLERANCE) {
+            debugInfo.creationReason = 'reused_existing_node';
+            debugInfo.decisionPath.push(`Found existing node ${i} at ${dist.toFixed(5)}km`);
+            if (DEBUG.enabled) {
+                console.log('Node creation debug:', debugInfo);
+                visualizeNodeAnalysis(coordPoint, edges, debugInfo);
+            }
+            return i;
+        }
+    }
+
+    // Analyze nearby paths
+    let connectedPaths = [];
+    edges.forEach((edge, edgeIndex) => {
+        if (!edge.coords || edge.coords.length < 2) return;
+
+        try {
+            const line = turf.lineString(edge.coords);
+            const nearest = turf.nearestPointOnLine(line, coordPoint);
+            const dist = nearest.properties.dist;
+
+            if (dist < CONFIG.NODE_CONNECTION_TOLERANCE) {
+                const pathInfo = {
+                    edgeIndex,
+                    distance: dist,
+                    location: nearest.properties.location,
+                    angle: calculatePathAngle(edge.coords, nearest.properties.index),
+                    coords: edge.coords
+                };
+
+                // Calculate entry and exit angles at this point
+                const segmentBefore = nearest.properties.index > 0 ? 
+                    turf.bearing(
+                        turf.point(edge.coords[nearest.properties.index - 1]),
+                        turf.point(edge.coords[nearest.properties.index])
+                    ) : null;
+                
+                const segmentAfter = nearest.properties.index < edge.coords.length - 1 ?
+                    turf.bearing(
+                        turf.point(edge.coords[nearest.properties.index]),
+                        turf.point(edge.coords[nearest.properties.index + 1])
+                    ) : null;
+
+                pathInfo.segmentBefore = segmentBefore;
+                pathInfo.segmentAfter = segmentAfter;
+                connectedPaths.push(pathInfo);
+            }
+        } catch (error) {
+            debugInfo.decisionPath.push(`Error analyzing edge ${edgeIndex}: ${error.message}`);
+        }
+    });
+
+    // Analyze path connectivity
+    let isIntersection = false;
+    let isEndpoint = false;
+
+    if (connectedPaths.length >= 2) {
+        // Check if paths have significantly different angles
+        for (let i = 0; i < connectedPaths.length; i++) {
+            for (let j = i + 1; j < connectedPaths.length; j++) {
+                const angleDiff = Math.abs(connectedPaths[i].angle - connectedPaths[j].angle);
+                if (angleDiff > 30 && angleDiff < 330) { // More than 30 degrees difference
+                    isIntersection = true;
+                    debugInfo.decisionPath.push(
+                        `Found intersection: paths ${i} and ${j} differ by ${angleDiff.toFixed(1)} degrees`
+                    );
+                }
+            }
+        }
+    }
+
+    // Check for true endpoints
+    connectedPaths.forEach(path => {
+        const isStart = path.location < 0.01; // Within 1% of path start
+        const isEnd = path.location > 0.99;   // Within 1% of path end
+        if (isStart || isEnd) {
+            isEndpoint = true;
+            debugInfo.decisionPath.push(
+                `Found endpoint: path ${path.edgeIndex} location ${path.location.toFixed(3)}`
+            );
+        }
+    });
+
+    debugInfo.pathAnalysis = {
+        connectedPaths: connectedPaths.length,
+        isIntersection,
+        isEndpoint
+    };
+
+    // Create node only if it's a true intersection or endpoint
+    if (isIntersection || isEndpoint) {
+        const newNodeIndex = nodes.length;
+        nodes.push(coord);
+        
+        debugInfo.creationReason = isEndpoint ? 'true_endpoint' : 'true_intersection';
+        debugInfo.decisionPath.push(
+            `Created node ${newNodeIndex} due to ${debugInfo.creationReason}`
+        );
+
+        if (DEBUG.enabled) {
+            console.log('Node creation debug:', debugInfo);
+            visualizeNodeAnalysis(coordPoint, edges, debugInfo);
+        }
+        return newNodeIndex;
+    }
+
+    // If not a node, find closest existing node
+    let closestNodeIndex = null;
+    let minDist = Infinity;
+    
+    for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i] === null) continue;
+        const dist = turf.distance(coordPoint, turf.point(nodes[i]), { units: 'kilometers' });
+        if (dist < minDist) {
             minDist = dist;
             closestNodeIndex = i;
         }
     }
 
-    // If no existing node found, check for nearby path segments
-    if (closestNodeIndex === null) {
-        for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex++) {
-            const edge = edges[edgeIndex];
-            
-            // Skip invalid edges
-            if (!edge.coords || edge.coords.length < 2) continue;
+    if (DEBUG.enabled) {
+        debugInfo.creationReason = 'using_closest_node';
+        console.log('Node creation debug:', debugInfo);
+        visualizeNodeAnalysis(coordPoint, edges, debugInfo);
+    }
 
-            try {
-                const line = turf.lineString(edge.coords);
-                const nearest = turf.nearestPointOnLine(line, coordPoint);
-                const dist = nearest.properties.dist;
+    return closestNodeIndex || 0;
+}
 
-                if (dist < CONFIG.NODE_CONNECTION_TOLERANCE && dist < minDist) {
-                    // Found a path to split
-                    const splitPoint = nearest.geometry.coordinates;
-                    minDist = dist;
-                    
-                    // Create new node at split point
-                    closestNodeIndex = nodes.length;
-                    nodes.push(splitPoint);
+// Helper function to calculate path angle at a point
+function calculatePathAngle(coords, index) {
+    if (index < 0 || index >= coords.length - 1) return 0;
+    return turf.bearing(
+        turf.point(coords[index]),
+        turf.point(coords[index + 1])
+    );
+}
 
-                    if (DEBUG.enabled) {
-                        console.log(`Creating fusion node ${closestNodeIndex} at dist ${dist.toFixed(5)}km from path`);
-                    }
+// Visualization helper
+function visualizeNodeAnalysis(point, edges, debugInfo) {
+    if (!DEBUG.enabled) return;
 
-                    // Split the existing edge only if we have valid index
-                    const splitIndex = nearest.properties.index;
-                    if (splitIndex >= 0 && splitIndex < edge.coords.length - 1) {
-                        const coords1 = edge.coords.slice(0, splitIndex + 1).concat([splitPoint]);
-                        const coords2 = [splitPoint].concat(edge.coords.slice(splitIndex + 1));
+    // Remove existing analysis visualization
+    ['debug-node-analysis'].forEach(id => {
+        if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(id)) map.removeSource(id);
+    });
 
-                        // Verify both parts are valid before splitting
-                        if (coords1.length >= 2 && coords2.length >= 2) {
-                            // Replace original edge with split edges
-                            edges.splice(edgeIndex, 1, {
-                                coords: coords1,
-                                difficulty: edge.difficulty
-                            }, {
-                                coords: coords2,
-                                difficulty: edge.difficulty
-                            });
-                            if (DEBUG.enabled) {
-                                console.log(`Split edge at node ${closestNodeIndex}, creating segments of ${coords1.length} and ${coords2.length} points`);
-                            }
-                        }
-                    }
-                    break;  // Found our split point
-                }
-            } catch (error) {
-                if (DEBUG.enabled) {
-                    console.warn('Error processing edge:', error);
-                }
-                continue;
+    // Create visualization features
+    const features = [];
+
+    // Add point being analyzed
+    features.push({
+        type: 'Feature',
+        properties: {
+            type: 'analysis_point',
+            reason: debugInfo.creationReason
+        },
+        geometry: {
+            type: 'Point',
+            coordinates: point.geometry.coordinates
+        }
+    });
+
+    // Add connected paths
+    debugInfo.nearbyPaths.forEach(path => {
+        features.push({
+            type: 'Feature',
+            properties: {
+                type: 'nearby_path',
+                distance: path.distance,
+                angle: path.angle
+            },
+            geometry: {
+                type: 'LineString',
+                coordinates: path.coords
             }
+        });
+    });
+
+    // Add the visualization layer
+    map.addSource('debug-node-analysis', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: features
+        }
+    });
+
+    map.addLayer({
+        id: 'debug-node-analysis',
+        type: 'circle',
+        source: 'debug-node-analysis',
+        filter: ['==', ['get', 'type'], 'analysis_point'],
+        paint: {
+            'circle-radius': 8,
+            'circle-color': [
+                'match',
+                ['get', 'reason'],
+                'true_intersection', '#FF0000',
+                'true_endpoint', '#00FF00',
+                'reused_existing_node', '#0000FF',
+                '#FFFF00'
+            ],
+            'circle-opacity': 0.7
+        }
+    });
+}
+
+// Add this cleanup function to be called after network building
+function cleanupNodes(network) {
+    if (!DEBUG.enabled) return network;
+
+    const oldToNewIndex = new Map();
+    const newNodes = [];
+    let remappedCount = 0;
+
+    // Create new nodes array without null entries
+    network.nodes.forEach((node, oldIndex) => {
+        if (node !== null) {
+            oldToNewIndex.set(oldIndex, newNodes.length);
+            newNodes.push(node);
+        }
+    });
+
+    // Remap edges to use new node indices
+    network.edges = network.edges.map(edge => ({
+        ...edge,
+        start: oldToNewIndex.get(edge.start),
+        end: oldToNewIndex.get(edge.end)
+    }));
+
+    // Rebuild adjacency list with new indices
+    const newAdjacency = new Map();
+    for (let i = 0; i < newNodes.length; i++) {
+        newAdjacency.set(i, []);
+    }
+
+    for (const [oldIndex, edges] of network.adjacency) {
+        const newIndex = oldToNewIndex.get(oldIndex);
+        if (newIndex !== undefined) {
+            newAdjacency.set(newIndex, edges.map(edge => ({
+                ...edge,
+                start: oldToNewIndex.get(edge.start),
+                end: oldToNewIndex.get(edge.end)
+            })));
         }
     }
 
-    if (closestNodeIndex !== null) {
-        return closestNodeIndex;
+    if (DEBUG.enabled) {
+        console.log('Node cleanup results:', {
+            originalNodes: network.nodes.length,
+            newNodes: newNodes.length,
+            remappedEdges: network.edges.length
+        });
     }
 
-    const newIndex = nodes.length;
-    nodes.push(coord);
-    return newIndex;
+    return {
+        ...network,
+        nodes: newNodes,
+        adjacency: newAdjacency
+    };
 }
 
 function buildPathNetwork(lineFeatures) {
@@ -1307,15 +1438,6 @@ function buildPathNetwork(lineFeatures) {
         });
     }
 
-    function deduplicateEdges(edges) {
-        const seen = new Set();
-        return edges.filter(edge => {
-            const key = `${edge.start}-${edge.end}-${edge.coords[0][0]}-${edge.coords[0][1]}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
-    }
 
     // Build adjacency list
     const adjacency = new Map();
@@ -1360,9 +1482,9 @@ function buildPathNetwork(lineFeatures) {
 
 function buildRoutesFromSignpost(network, startNode, signpostPoint) {
     const routes = [];
-    const visitedEdges = new Set();  // Track visited edges instead of nodes
+    const visitedEdges = new Set();
+    const visitedNodes = new Set([startNode]);  // Track visited nodes
     const queue = [];
-    const terminationPoints = [];
     const debugInfo = {
         totalRoutes: 0,
         truncatedRoutes: 0,
@@ -1370,19 +1492,21 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
         minRouteLength: Infinity,
         processedEdges: 0,
         directionsFound: 0,
+        loopsPrevented: 0,
         terminationReasons: {
             max_distance: 0,
             cycle: 0,
-            no_advance: 0
+            no_advance: 0,
+            all_visited: 0
         }
     };
 
-    // Get initial edges and sort them by direction
+    // Get and sort initial edges by direction
     const initialEdges = network.adjacency.get(startNode) || [];
     const edgesByDirection = new Map();
     
     if (DEBUG.enabled) {
-        console.log(`Starting from node ${startNode} with ${initialEdges.length} initial edges`);
+        console.log(`Starting route building from node ${startNode} with ${initialEdges.length} initial edges`);
     }
     
     // Group initial edges by direction
@@ -1396,7 +1520,7 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
         edgesByDirection.get(direction).push(edge);
     });
 
-    // Take edges per direction
+    // Take limited edges per direction to prevent explosion
     const limitedInitialEdges = [];
     edgesByDirection.forEach((edges, direction) => {
         const sortedEdges = edges.sort((a, b) => {
@@ -1416,8 +1540,9 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
         
         debugInfo.processedEdges++;
         visitedEdges.add(edgeKey);
+        visitedNodes.add(e.end);
 
-        if (dist > CONFIG.MAX_ROUTE_DISTANCE) {
+        if (dist >= CONFIG.MAX_ROUTE_DISTANCE) {
             const partial = turf.lineSliceAlong(
                 turf.lineString(lineCoords),
                 0,
@@ -1426,15 +1551,7 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
             );
             routes.push(partial.geometry.coordinates);
             debugInfo.truncatedRoutes++;
-            debugInfo.totalRoutes++;
-            debugInfo.maxRouteLength = Math.max(debugInfo.maxRouteLength, CONFIG.MAX_ROUTE_DISTANCE);
-            debugInfo.minRouteLength = Math.min(debugInfo.minRouteLength, CONFIG.MAX_ROUTE_DISTANCE);
-            
-            terminationPoints.push({
-                coords: partial.geometry.coordinates[partial.geometry.coordinates.length - 1],
-                reason: 'max_distance',
-                details: `${dist.toFixed(2)}km`
-            });
+            debugInfo.terminationReasons.max_distance++;
             continue;
         }
 
@@ -1443,61 +1560,50 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
             coords: lineCoords,
             distance: dist,
             previousNode: startNode,
-            path: [startNode, e.end],
+            depth: 1,
             direction: calculatePathDirection(signpostPoint, lineCoords)
         });
     }
 
+    const MAX_DEPTH = 50; // Prevent infinite recursion
+
     // Process the queue
     while (queue.length > 0) {
         const state = queue.shift();
-        const { currentNode, coords, distance, previousNode, path, direction } = state;
+        const { currentNode, coords, distance, previousNode, depth, direction } = state;
+
+        if (depth > MAX_DEPTH) {
+            if (DEBUG.enabled) {
+                console.log(`Max depth reached at node ${currentNode}`);
+            }
+            routes.push(coords);
+            debugInfo.totalRoutes++;
+            debugInfo.terminationReasons.cycle++;
+            continue;
+        }
 
         if (distance >= CONFIG.MAX_ROUTE_DISTANCE) {
-            if (distance > CONFIG.MAX_ROUTE_DISTANCE) {
-                const partial = turf.lineSliceAlong(
-                    turf.lineString(coords),
-                    0,
-                    CONFIG.MAX_ROUTE_DISTANCE,
-                    { units: 'kilometers' }
-                );
-                routes.push(partial.geometry.coordinates);
-                debugInfo.truncatedRoutes++;
-            } else {
-                routes.push(coords);
-            }
+            routes.push(coords);
             debugInfo.totalRoutes++;
-            debugInfo.maxRouteLength = Math.max(debugInfo.maxRouteLength, distance);
-            debugInfo.minRouteLength = Math.min(debugInfo.minRouteLength, distance);
             debugInfo.terminationReasons.max_distance++;
-            terminationPoints.push({
-                coords: coords[coords.length - 1],
-                reason: 'max_distance',
-                details: `${distance.toFixed(2)}km`
-            });
             continue;
         }
 
         const nextEdges = network.adjacency.get(currentNode) || [];
-        let advanced = false;
+        let validEdgesFound = false;
 
         for (const e of nextEdges) {
             debugInfo.processedEdges++;
 
-            // Skip if edge leads back to previous node
-            if (e.end === previousNode) {
-                if (DEBUG.enabled) {
-                    console.log(`Skipping backtrack to previous node ${previousNode}`);
-                }
+            // Skip if edge leads back to previous node or any visited node
+            if (visitedNodes.has(e.end)) {
+                debugInfo.loopsPrevented++;
                 continue;
             }
 
             // Check if edge has been visited
             const edgeKey = `${Math.min(e.start, e.end)}-${Math.max(e.start, e.end)}`;
             if (visitedEdges.has(edgeKey)) {
-                if (DEBUG.enabled) {
-                    console.log(`Edge ${edgeKey} already visited`);
-                }
                 continue;
             }
 
@@ -1506,14 +1612,12 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
             
             // Skip very short segments
             if (segmentDist < CONFIG.MIN_SEGMENT_LENGTH) {
-                if (DEBUG.enabled) {
-                    console.log(`Segment too short: ${segmentDist.toFixed(3)}km`);
-                }
                 continue;
             }
 
             const newDistance = distance + segmentDist;
             visitedEdges.add(edgeKey);
+            visitedNodes.add(e.end);
 
             if (newDistance > CONFIG.MAX_ROUTE_DISTANCE) {
                 const needed = CONFIG.MAX_ROUTE_DISTANCE - distance;
@@ -1523,79 +1627,39 @@ function buildRoutesFromSignpost(network, startNode, signpostPoint) {
                     needed,
                     { units: 'kilometers' }
                 );
-                const combinedCoords = combineCoords(coords, partial.geometry.coordinates);
-                routes.push(combinedCoords);
+                routes.push(combineCoords(coords, partial.geometry.coordinates));
                 debugInfo.truncatedRoutes++;
-                debugInfo.totalRoutes++;
-                terminationPoints.push({
-                    coords: combinedCoords[combinedCoords.length - 1],
-                    reason: 'max_distance',
-                    details: `${newDistance.toFixed(2)}km`
-                });
+                debugInfo.terminationReasons.max_distance++;
             } else {
-                const combinedCoords = combineCoords(coords, lineCoords);
                 queue.push({
                     currentNode: e.end,
-                    coords: combinedCoords,
+                    coords: combineCoords(coords, lineCoords),
                     distance: newDistance,
                     previousNode: currentNode,
-                    path: [...path, e.end],
+                    depth: depth + 1,
                     direction
                 });
             }
-            advanced = true;
+            validEdgesFound = true;
         }
 
-        if (!advanced) {
+        if (!validEdgesFound) {
             routes.push(coords);
             debugInfo.totalRoutes++;
-            debugInfo.maxRouteLength = Math.max(debugInfo.maxRouteLength, distance);
-            debugInfo.minRouteLength = Math.min(debugInfo.minRouteLength, distance);
             debugInfo.terminationReasons.no_advance++;
-
-            const nextEdgeAnalysis = nextEdges.map(e => ({
-                from: e.start,
-                to: e.end,
-                length: turf.length(turf.lineString(e.coords), { units: 'kilometers' }),
-                wasVisited: visitedEdges.has(`${Math.min(e.start, e.end)}-${Math.max(e.start, e.end)}`),
-                isBacktrack: e.end === previousNode
-            }));
-
-            terminationPoints.push({
-                coords: coords[coords.length - 1],
-                reason: 'no_advance',
-                details: `Analyzed ${nextEdges.length} edges:\n` + 
-                        nextEdgeAnalysis.map((analysis, idx) => 
-                            `Edge ${idx + 1}:\n` +
-                            `  - From node: ${analysis.from}\n` +
-                            `  - To node: ${analysis.to}\n` +
-                            `  - Length: ${analysis.length.toFixed(3)}km\n` +
-                            `  - Visited: ${analysis.wasVisited}\n` +
-                            `  - Backtrack: ${analysis.isBacktrack}`
-                        ).join('\n')
-            });
         }
     }
 
     if (DEBUG.enabled) {
-        console.log('Route building statistics:', {
+        console.log('Route building completed:', {
             ...debugInfo,
-            terminationReasons: Object.entries(debugInfo.terminationReasons)
-                .map(([reason, count]) => `${reason}: ${count}`)
-                .join(', '),
-            visitedEdges: visitedEdges.size
+            finalRoutes: routes.length,
+            averageLength: routes.reduce((sum, route) => 
+                sum + turf.length(turf.lineString(route), { units: 'kilometers' }), 0) / routes.length
         });
-
-        routes.forEach((route, index) => {
-            const length = turf.length(turf.lineString(route), { units: 'kilometers' });
-            console.log(`Route ${index}: ${length.toFixed(2)}km, ${route.length} points`);
-        });
-        visualizeDebugTermination(map, terminationPoints);
-
     }
 
-
-    return { routes, debugInfo, terminationPoints };
+    return { routes, debugInfo };
 }
 
 // =====================
@@ -1606,24 +1670,174 @@ function visualizeDebug(network, routes, startPoint) {
     if (!DEBUG.enabled) return;
 
     // Remove existing debug layers
-    ['debug-paths', 'debug-buffer', 'debug-search-area', 'debug-nodes'].forEach(id => {
+    ['debug-network', 'debug-paths', 'debug-arrows', 'debug-buffer', 'debug-search-area', 'debug-nodes'].forEach(id => {
         if (map.getLayer(id)) map.removeLayer(id);
         if (map.getSource(id)) map.removeSource(id);
     });
+
     // Visualize full network
-    const allEdgeFeatures = network.edges.map((edge, index) => ({
+    const networkFeatures = network.edges.map(edge => ({
         type: 'Feature',
-        properties: { index },
+        properties: { 
+            difficulty: edge.difficulty
+        },
         geometry: {
             type: 'LineString',
             coordinates: edge.coords
         }
     }));
 
+    map.addSource('debug-network', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: networkFeatures
+        }
+    });
+
+    map.addLayer({
+        id: 'debug-network',
+        type: 'line',
+        source: 'debug-network',
+        paint: {
+            'line-color': '#999999',
+            'line-width': 1,
+            'line-opacity': 0.3,
+            'line-dasharray': [2, 2]
+        }
+    });
+
+    // Visualize routes with constant offsets
+    const routeFeatures = routes.map((route, index) => {
+        // Calculate offset direction based on index
+        const offsetDistance = 0.00002 * (index % 5); // About 2 meters per offset level
+        const offsetAngle = Math.floor(index / 5) * (Math.PI / 3); // Change angle every 5 routes
+
+        // Apply constant offset to all points along the route
+        const offsetCoords = route.map(coord => {
+            const dx = Math.cos(offsetAngle) * offsetDistance;
+            const dy = Math.sin(offsetAngle) * offsetDistance;
+            return [coord[0] + dx, coord[1] + dy];
+        });
+
+        return {
+            type: 'Feature',
+            properties: {
+                index,
+                length: turf.length(turf.lineString(route), { units: 'kilometers' }).toFixed(2),
+                color: `hsl(${(index * 137.508) % 360}, 70%, 50%)`,
+                offsetAngle: (offsetAngle * 180 / Math.PI).toFixed(1),
+                offsetDistance: (offsetDistance * 111319.9).toFixed(2) // Convert to meters (roughly)
+            },
+            geometry: {
+                type: 'LineString',
+                coordinates: offsetCoords
+            }
+        };
+    });
+
+    map.addSource('debug-paths', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: routeFeatures
+        }
+    });
+
+    map.addLayer({
+        id: 'debug-paths',
+        type: 'line',
+        source: 'debug-paths',
+        paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 3,
+            'line-opacity': 0.6
+        }
+    });
+
+    // Add direction arrows (using offset coordinates)
+    const arrowFeatures = routeFeatures.flatMap(route => {
+        const line = turf.lineString(route.geometry.coordinates);
+        const length = turf.length(line, { units: 'kilometers' });
+        const arrows = [];
+        const arrowSpacing = 0.5; // Place arrows every 500m
+
+        for (let distance = 0.25; distance < length; distance += arrowSpacing) {
+            const point = turf.along(line, distance, { units: 'kilometers' });
+            const bearing = turf.bearing(
+                turf.point(route.geometry.coordinates[0]),
+                point
+            );
+
+            arrows.push({
+                type: 'Feature',
+                properties: {
+                    bearing,
+                    color: route.properties.color
+                },
+                geometry: point.geometry
+            });
+        }
+        return arrows;
+    });
+
+    map.addSource('debug-arrows', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: arrowFeatures
+        }
+    });
+
+    map.addLayer({
+        id: 'debug-arrows',
+        type: 'symbol',
+        source: 'debug-arrows',
+        layout: {
+            'symbol-placement': 'point',
+            'icon-image': 'arrow',
+            'icon-size': 0.5,
+            'icon-rotate': ['get', 'bearing'],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true
+        },
+        paint: {
+            'icon-color': ['get', 'color'],
+            'icon-opacity': 0.8
+        }
+    });
+
+    // Add hover effect for routes with enhanced information
+    map.on('mouseenter', 'debug-paths', (e) => {
+        if (e.features.length > 0) {
+            map.getCanvas().style.cursor = 'pointer';
+            const props = e.features[0].properties;
+            
+            new maplibregl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(`
+                    <div style="font-family: Arial, sans-serif;">
+                        <strong>Route ${props.index}</strong><br>
+                        Length: ${props.length}km<br>
+                        Offset: ${props.offsetDistance}m<br>
+                        Angle: ${props.offsetAngle}°
+                    </div>
+                `)
+                .addTo(map);
+        }
+    });
+
+    map.on('mouseleave', 'debug-paths', () => {
+        map.getCanvas().style.cursor = '';
+    });
+
     // Visualize network nodes
     const nodeFeatures = network.nodes.map((node, index) => ({
         type: 'Feature',
-        properties: { index },
+        properties: { 
+            index,
+            isStart: index === findClosestNode(turf.point([startPoint.lng, startPoint.lat]), network.nodes)
+        },
         geometry: {
             type: 'Point',
             coordinates: node
@@ -1643,48 +1857,43 @@ function visualizeDebug(network, routes, startPoint) {
         type: 'circle',
         source: 'debug-nodes',
         paint: {
-            'circle-radius': 4,
-            'circle-color': '#FF0000',
-            'circle-opacity': 0.7
-        }
-    });
-
-    // Visualize routes
-    const routeFeatures = routes.map((route, index) => ({
-        type: 'Feature',
-        properties: {
-            index,
-            length: turf.length(turf.lineString(route), { units: 'kilometers' }).toFixed(2)
-        },
-        geometry: {
-            type: 'LineString',
-            coordinates: route
-        }
-    }));
-
-    map.addSource('debug-paths', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: routeFeatures
-        }
-    });
-
-    map.addLayer({
-        id: 'debug-paths',
-        type: 'line',
-        source: 'debug-paths',
-        paint: {
-            'line-color': [
-                'interpolate',
-                ['linear'],
-                ['get', 'index'],
-                0, '#FF0000',
-                routes.length, '#0000FF'
+            'circle-radius': [
+                'case',
+                ['get', 'isStart'],
+                8,
+                4
             ],
-            'line-width': 3,
-            'line-opacity': 0.6
+            'circle-color': [
+                'case',
+                ['get', 'isStart'],
+                '#00FF00',
+                '#FF0000'
+            ],
+            'circle-opacity': 0.7,
+            'circle-stroke-width': [
+                'case',
+                ['get', 'isStart'],
+                2,
+                0
+            ],
+            'circle-stroke-color': '#FFFFFF'
         }
+    });
+
+    // Add hover effect for nodes
+    map.on('mouseenter', 'debug-nodes', (e) => {
+        if (e.features.length > 0) {
+            map.getCanvas().style.cursor = 'pointer';
+            
+            new maplibregl.Popup()
+                .setLngLat(e.lngLat)
+                .setHTML(`Node ${e.features[0].properties.index}${e.features[0].properties.isStart ? ' (Start)' : ''}`)
+                .addTo(map);
+        }
+    });
+
+    map.on('mouseleave', 'debug-nodes', () => {
+        map.getCanvas().style.cursor = '';
     });
 
     // Add search area visualization
@@ -1709,6 +1918,15 @@ function visualizeDebug(network, routes, startPoint) {
             'line-dasharray': [2, 2]
         }
     });
+
+    // Log debug information
+    console.log('Debug visualization stats:', {
+        networkEdges: networkFeatures.length,
+        routes: routeFeatures.length,
+        directionArrows: arrowFeatures.length,
+        nodes: nodeFeatures.length,
+        startPoint: startPoint
+    });
 }
 function visualizeDebugTermination(map, terminationPoints) {
     // Remove existing layers if any
@@ -1719,6 +1937,14 @@ function visualizeDebugTermination(map, terminationPoints) {
     map.off('click', 'debug-termination');
     map.off('mouseenter', 'debug-termination');
     map.off('mouseleave', 'debug-termination');
+
+    const reasonLabels = {
+        'sharp_turn': 'Sharp Turn',
+        'cycle': 'Cycle Detected',
+        'max_distance': 'Maximum Distance Reached',
+        'no_advance': 'No Valid Next Edges',
+        'all_edges_visited': 'All Next Edges Visited'
+    };
 
     const features = terminationPoints.map(point => ({
         type: 'Feature',
@@ -1851,8 +2077,9 @@ async function findSignpostDirections(signpostPoint, signpostName) {
         return [];
     });
 
-// Build network
-    const network = buildPathNetwork(lineFeatures);
+    // Build network and clean up nodes
+    let network = buildPathNetwork(lineFeatures);
+    network = cleanupNodes(network);  // Added cleanup here
     DEBUG.logNetwork(network);
 
     // Find start node
@@ -1890,18 +2117,6 @@ async function findSignpostDirections(signpostPoint, signpostName) {
 // =====================
 // Enhanced POI Detection with Debug Support
 // =====================
-
-function sortPOIsByPriority(pois) {
-    return pois.sort((a, b) => {
-        // First sort by priority
-        const priorityA = POI_PRIORITIES[a.type] || 999;
-        const priorityB = POI_PRIORITIES[b.type] || 999;
-        if (priorityA !== priorityB) return priorityA - priorityB;
-        
-        // Then by distance if same priority
-        return a.distance - b.distance;
-    });
-}
 
 const POI_PRIORITIES = {
     'peak': 1,
