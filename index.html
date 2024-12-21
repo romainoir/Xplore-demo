@@ -835,58 +835,883 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
 function deg2rad(deg) {
     return deg * (Math.PI/180);
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+
 // =====================
-// Configuration Constants with Debug Logging
+// Configuration and Constants
 // =====================
+const osmCache = new Map();
+
+const POI_PRIORITIES = {
+    'peak': 1,
+    'saddle': 2,
+    'parking': 3,
+    'shelter': 4,
+    'alpine_hut': 4,
+    'information': 5,  // signposts
+    'spring': 6,
+    'water_point': 6
+};
 
 const CONFIG = {
-    PATH_SEARCH_RADIUS: 0.01,      // 50m
-    NODE_CONNECTION_TOLERANCE: 0.01, // 10m
-    MAX_ROUTE_DISTANCE: 3.0,        // 3km
-    CORRIDOR_BUFFER_DISTANCE: 0.03,  // 20m
-    POI_SEARCH_BUFFER: 0.03,        // 20m
-    DUPLICATE_POI_THRESHOLD: 0.05,
-    INITIAL_SEARCH_AREA_RADIUS: 0.02,
-    MIN_POI_DISTANCE: 0.1, // 100 meters minimum distance from signpost
-    EDGES_PER_DIRECTION: 3,        // Number of initial edges to consider per direction
-    MIN_SEGMENT_LENGTH: 0.02       // Minimum segment length to consider (20m)
+    POI_SEARCH_BUFFER: 0.1,  // 100m buffer around routes
+    MIN_POI_DISTANCE: 0.05   // 50m minimum distance from signpost
 };
 
-const DEBUG = {
-    enabled: true,
-    logConfig: function() {
-        if (!this.enabled) return;
-        console.log('Current Configuration:', {
-            ...CONFIG,
-            PATH_SEARCH_RADIUS_METERS: CONFIG.PATH_SEARCH_RADIUS * 1000,
-            NODE_CONNECTION_TOLERANCE_METERS: CONFIG.NODE_CONNECTION_TOLERANCE * 1000,
-            CORRIDOR_BUFFER_DISTANCE_METERS: CONFIG.CORRIDOR_BUFFER_DISTANCE * 1000
-        });
-    },
-    logNetwork: function(network) {
-        if (!this.enabled) return;
-        console.log('Network Statistics:', {
-            nodes: network.nodes.length,
-            edges: network.edges.length,
-            averageEdgeLength: network.edges.reduce((sum, edge) => 
-                sum + turf.length(turf.lineString(edge.coords), { units: 'kilometers' }), 0) / network.edges.length
-        });
-    },
-    logRoute: function(route, index) {
-        if (!this.enabled) return;
-        const length = turf.length(turf.lineString(route), { units: 'kilometers' });
-        console.log(`Route ${index}: ${length.toFixed(2)}km, ${route.length} points`);
+// =====================
+// Direction calculation functions
+// =====================
+function getCardinalDirection(bearing) {
+    bearing = (bearing + 360) % 360;
+    if (bearing >= 337.5 || bearing < 22.5) return '↑ N';
+    if (bearing >= 22.5 && bearing < 67.5) return '↗ NE';
+    if (bearing >= 67.5 && bearing < 112.5) return '→ E';
+    if (bearing >= 112.5 && bearing < 157.5) return '↘ SE';
+    if (bearing >= 157.5 && bearing < 202.5) return '↓ S';
+    if (bearing >= 202.5 && bearing < 247.5) return '↙ SW';
+    if (bearing >= 247.5 && bearing < 292.5) return '← W';
+    if (bearing >= 292.5 && bearing < 337.5) return '↖ NW';
+    return '↑ N';
+}
+function getPathDirections(networkCoords, startPoint) {
+    const startPointTurf = turf.point([startPoint.lng, startPoint.lat]);
+    const NEAR_DISTANCE = 0.02; // 20 meters
+    const MIN_ANGLE_DIFF = 20; // Minimum angle difference to consider paths distinct
+    
+    // Find all segments connected to the guidepost
+    const startSegments = [];
+    
+    for (let i = 0; i < networkCoords.length - 1; i++) {
+        const start = networkCoords[i];
+        const end = networkCoords[i + 1];
+        
+        const startDist = turf.distance(startPointTurf, turf.point(start), {units: 'kilometers'});
+        const endDist = turf.distance(startPointTurf, turf.point(end), {units: 'kilometers'});
+        
+        if (startDist < NEAR_DISTANCE || endDist < NEAR_DISTANCE) {
+            // Calculate bearing away from guidepost
+            const bearing = startDist < endDist ?
+                turf.bearing(turf.point(start), turf.point(end)) :
+                turf.bearing(turf.point(end), turf.point(start));
+            
+            startSegments.push({
+                path: {
+                    start: startDist < endDist ? start : end,
+                    end: startDist < endDist ? end : start
+                },
+                bearing: bearing,
+                direction: getCardinalDirection(bearing)
+            });
+        }
     }
-};
+    
+    // Consolidate similar paths
+    const uniquePaths = [];
+    startSegments.forEach(segment => {
+        const isUnique = !uniquePaths.some(existing => {
+            let angleDiff = Math.abs(existing.bearing - segment.bearing);
+            if (angleDiff > 180) angleDiff = 360 - angleDiff;
+            return angleDiff < MIN_ANGLE_DIFF;
+        });
+        
+        if (isUnique) {
+            uniquePaths.push(segment);
+        }
+    });
+    
+    return uniquePaths;
+}
 
 // =====================
-// Utility Functions
+// Network Building with Debug Info
 // =====================
+function isIntersection(nodeId, nodeWays, nodePositions, ways) {
+    const wayIds = nodeWays.get(nodeId);
+    if (!wayIds || wayIds.size < 2) return false;
+    if (wayIds.size > 2) return true;
 
+    const position = nodePositions.get(nodeId);
+    if (!position) return false;
+
+    const connectedWays = Array.from(wayIds)
+        .map(wayId => ways.find(w => w.id === wayId))
+        .filter(Boolean);
+
+    if (connectedWays.length !== 2) return false;
+
+    const bearings = connectedWays.map(way => {
+        const nodeIndex = way.nodes.indexOf(nodeId);
+        const otherNodeId = nodeIndex === 0 ? 
+            way.nodes[1] : 
+            way.nodes[way.nodes.length - 2];
+        const otherNode = nodePositions.get(otherNodeId);
+        if (!otherNode) return null;
+        
+        const bearing = turf.bearing(
+            turf.point(position),
+            turf.point(otherNode)
+        );
+        return { bearing, wayId: way.id };
+    }).filter(Boolean);
+
+    if (bearings.length !== 2) return false;
+
+    let angleDiff = Math.abs(bearings[0].bearing - bearings[1].bearing);
+    if (angleDiff > 180) angleDiff = 360 - angleDiff;
+
+    return angleDiff > 45;
+}
+function findAllRoutes(nodes, ways, nodeWays, nodePositions, lon, lat) {
+    // Find starting points
+    const startNodes = new Set();
+    const guidepostNode = nodes.find(n => 
+        Math.abs(n.lat - lat) < 0.0001 && Math.abs(n.lon - lon) < 0.0001
+    );
+    
+    if (guidepostNode) {
+        startNodes.add(guidepostNode.id);
+        // Also add nearby nodes
+        nodes.forEach(n => {
+            if (Math.abs(n.lat - lat) < 0.0002 && Math.abs(n.lon - lon) < 0.0002) {
+                startNodes.add(n.id);
+            }
+        });
+    }
+
+    const routes = [];
+    const visited = new Set();
+
+    function findRoutes(nodeId, currentWayId = null, path = [], visitedWays = new Set(), depth = 0) {
+        if (depth > 40 || routes.length >= 30) return;
+        
+        const nodePos = nodePositions.get(nodeId);
+        if (!nodePos) return;
+        
+        if (!currentWayId) {
+            // Get all connected ways and sort them by ID for consistency
+            const connectedWays = Array.from(nodeWays.get(nodeId) || new Set())
+                .sort((a, b) => {
+                    // Sort by way length first (prefer longer ways)
+                    const wayA = ways.find(w => w.id === a);
+                    const wayB = ways.find(w => w.id === b);
+                    if (!wayA || !wayB) return 0;
+                    
+                    // Then by way ID for stable sorting
+                    return wayA.id.localeCompare(wayB.id);
+                });
+            
+            // Explore all connected ways
+            for (const wayId of connectedWays) {
+                if (!visitedWays.has(wayId)) {
+                    findRoutes(nodeId, wayId, [nodePos], new Set(visitedWays), depth);
+                }
+            }
+            return;
+        }
+        
+        if (!visitedWays.has(currentWayId)) {
+            visitedWays.add(currentWayId);
+            const way = ways.find(w => w.id === currentWayId);
+            if (way) {
+                const nodeIndex = way.nodes.indexOf(nodeId);
+                if (nodeIndex !== -1) {
+                    const directions = [];
+                    
+                    // Forward direction
+                    if (nodeIndex < way.nodes.length - 1) {
+                        const forwardCoords = [];
+                        for (let i = nodeIndex; i < way.nodes.length; i++) {
+                            const pos = nodePositions.get(way.nodes[i]);
+                            if (pos) forwardCoords.push(pos);
+                        }
+                        if (forwardCoords.length > 1) {
+                            directions.push({
+                                coords: forwardCoords,
+                                nextNode: way.nodes[way.nodes.length - 1]
+                            });
+                        }
+                    }
+                    
+                    // Backward direction
+                    if (nodeIndex > 0) {
+                        const backwardCoords = [];
+                        for (let i = nodeIndex; i >= 0; i--) {
+                            const pos = nodePositions.get(way.nodes[i]);
+                            if (pos) backwardCoords.push(pos);
+                        }
+                        if (backwardCoords.length > 1) {
+                            directions.push({
+                                coords: backwardCoords,
+                                nextNode: way.nodes[0]
+                            });
+                        }
+                    }
+                    
+                    for (const direction of directions) {
+                        const newPath = [...path, ...direction.coords.slice(1)];
+                        const connectedWays = Array.from(nodeWays.get(direction.nextNode) || new Set());
+                        
+                        for (const nextWayId of connectedWays) {
+                            if (!visitedWays.has(nextWayId)) {
+                                findRoutes(direction.nextNode, nextWayId, newPath, new Set(visitedWays), depth + 1);
+                            }
+                        }
+                    }
+                }
+            }
+            visitedWays.delete(currentWayId);
+        }
+        
+        if (path.length > 3) {
+            const uniqueCoords = new Set();
+            let lastCoord = null;
+            for (const coord of path) {
+                if (!lastCoord || 
+                    Math.abs(coord[0] - lastCoord[0]) > 0.0001 || 
+                    Math.abs(coord[1] - lastCoord[1]) > 0.0001) {
+                    uniqueCoords.add(coord.join(','));
+                    lastCoord = coord;
+                }
+            }
+            if (uniqueCoords.size > 3) {
+                routes.push(path);
+            }
+        }
+    }
+
+    // Find routes from each start node
+    for (const startNodeId of startNodes) {
+        findRoutes(startNodeId);
+    }
+
+    return routes;
+}
+function debugPOIs(pois) {
+    // Clean up existing debug layer
+    if (map.getLayer('debug-pois')) map.removeLayer('debug-pois');
+    if (map.getSource('debug-pois')) map.removeSource('debug-pois');
+
+    // Create a new GeoJSON feature collection for the POIs
+    const poiFeatures = pois.map(poi => ({
+        type: 'Feature',
+        properties: poi.properties,
+        geometry: poi.geometry
+    }));
+
+    // Add the POI features as a new source and layer
+    map.addSource('debug-pois', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: poiFeatures
+        }
+    });
+
+    map.addLayer({
+        id: 'debug-pois',
+        type: 'circle',
+        source: 'debug-pois',
+        paint: {
+            'circle-radius': 6,
+            'circle-color': '#FF0000',
+            'circle-opacity': 0.8,
+            'circle-stroke-width': 1,
+            'circle-stroke-color': '#FFFFFF'
+        }
+    });
+}
+function getOverpassQuery(lat, lon) {
+    const PATH_RADIUS = 3000;  // 8km for paths
+    const POI_RADIUS = 4000;   // 5km for POIs
+    
+    return `[out:json][timeout:25];
+(
+    // Get paths with larger radius
+    way(around:${PATH_RADIUS},${lat},${lon})[highway~"^(path|footway|track)$"];
+    node(w); // Get nodes for those ways
+    
+    // Natural features
+    node(around:${POI_RADIUS},${lat},${lon})[natural~"^(peak|saddle|spring|water_point)$"];
+    
+    // Amenities
+    node(around:${POI_RADIUS},${lat},${lon})[amenity~"^(parking|shelter|alpine_hut|drinking_water)$"];
+    
+    // Tourism and Information
+    node(around:${POI_RADIUS},${lat},${lon})[tourism="alpine_hut"];
+    node(around:${POI_RADIUS},${lat},${lon})[tourism="information"][information!="guidepost"];
+    
+    // Additional query for guideposts
+    node(around:${POI_RADIUS},${lat},${lon})[information="guidepost"][tourism="information"];
+    
+    // Additional query for parking locations
+    node(around:${POI_RADIUS},${lat},${lon})[amenity="parking"];
+);
+out body;
+>;
+out body qt;`;
+}
+
+function findPOIsForNetwork(networkCoords, startPoint, osmData) {
+    // Remove duplicates by ID
+    const uniqueElements = new Map();
+    osmData.elements.forEach(el => {
+        if (el.type === 'node' && el.tags) {
+            const key = `${el.id}-${el.type}`;
+            uniqueElements.set(key, el);
+        }
+    });
+
+    const networkLine = turf.lineString(networkCoords);
+    const buffer = turf.buffer(networkLine, 0.5, {units: 'kilometers'});
+    const signpostBuffer = turf.buffer(
+        turf.point([startPoint.lng, startPoint.lat]), 
+        0.01,
+        {units: 'kilometers'}
+    );
+
+    // Process unique POIs
+    const pois = Array.from(uniqueElements.values())
+        .filter(el => {
+            // Skip the current guidepost
+            if (el.lat === startPoint.lat && el.lon === startPoint.lng) {
+                return false;
+            }
+
+            // Determine feature type
+            let feature = null;
+
+            // Check for parking
+            if (el.tags.amenity === 'parking') {
+                feature = 'parking';
+            }
+            // Check for guidepost
+            else if (el.tags.tourism === 'information' && el.tags.information === 'guidepost') {
+                feature = 'information';  // guidepost
+            }
+            // Check other features
+            else {
+                feature = el.tags.natural || 
+                         el.tags.amenity || 
+                         (el.tags.tourism === 'alpine_hut' ? 'alpine_hut' : null);
+            }
+
+            return POI_PRIORITIES.hasOwnProperty(feature);
+        })
+        .map(node => {
+            // Determine feature type with priority for certain tags
+            let feature;
+            if (node.tags.amenity === 'parking') {
+                feature = 'parking';
+            } else if (node.tags.tourism === 'information' && node.tags.information === 'guidepost') {
+                feature = 'information';
+            } else {
+                feature = node.tags.natural || 
+                         node.tags.amenity || 
+                         (node.tags.tourism === 'alpine_hut' ? 'alpine_hut' : node.tags.tourism);
+            }
+
+            return {
+                geometry: {
+                    type: 'Point',
+                    coordinates: [node.lon, node.lat]
+                },
+                properties: {
+                    name: node.tags.name || feature,
+                    feature: feature,
+                    ele: node.tags.ele,
+                    tags: node.tags,
+                    id: node.id
+                }
+            };
+        });
+
+    console.log('Found POIs before filtering:', pois.map(p => ({
+        name: p.properties.name,
+        feature: p.properties.feature,
+        coords: p.geometry.coordinates
+    })));
+
+    const filteredPois = pois.filter(poi => {
+        const point = turf.point(poi.geometry.coordinates);
+        const isAwayFromSignpost = !turf.booleanPointInPolygon(point, signpostBuffer);
+        const isImportantPOI = POI_PRIORITIES[poi.properties.feature] <= 3; // Include parking in important POIs
+        const effectiveBuffer = isImportantPOI ? 
+            turf.buffer(networkLine, 1, {units: 'kilometers'}) : buffer;
+        
+        const isInNetworkBuffer = turf.booleanPointInPolygon(point, effectiveBuffer);
+        
+        console.log('POI filtering:', {
+            name: poi.properties.name,
+            feature: poi.properties.feature,
+            inBuffer: isInNetworkBuffer,
+            awayFromSignpost: isAwayFromSignpost,
+            coordinates: poi.geometry.coordinates,
+            isImportantPOI
+        });
+
+        return isInNetworkBuffer && isAwayFromSignpost;
+    });
+
+    return filteredPois.map(poi => {
+        const coordinates = poi.geometry.coordinates;
+        const distance = turf.distance(
+            turf.point([startPoint.lng, startPoint.lat]),
+            turf.point(coordinates),
+            {units: 'kilometers'}
+        );
+
+        return {
+            name: poi.properties.name || 
+                `${poi.properties.feature} (${poi.properties.ele}m)`,
+            type: poi.properties.feature,
+            priority: POI_PRIORITIES[poi.properties.feature] || 999,
+            geometry: poi.geometry,
+            distance,
+            elevation: poi.properties.ele || 0,
+            time: calculateHikingTime(
+                distance,
+                Math.max(0, (poi.properties.ele || 0) - startPoint.ele),
+                'hiking'
+            ),
+            id: poi.properties.id
+        };
+    });
+}
+function processRoutes(routes, startPoint) {
+    const directionalRoutes = new Map();
+    
+    routes.forEach(route => {
+        const direction = calculatePathDirection(startPoint, route);
+        if (!direction) return;
+        
+        if (!directionalRoutes.has(direction)) {
+            directionalRoutes.set(direction, []);
+        }
+        
+        const distance = turf.length(turf.lineString(route), {units: 'kilometers'});
+        const pois = findPOIsForRoute(route, startPoint);
+        
+        directionalRoutes.get(direction).push({
+            coords: route,
+            distance: distance,
+            destinations: pois
+        });
+    });
+
+    return Array.from(directionalRoutes.entries())
+        .map(([direction, routes]) => ({
+            direction,
+            destinations: routes[0].destinations || []
+        }))
+        .filter(result => result.destinations.length > 0)
+        .sort((a, b) => {
+            const minPriorityA = Math.min(...a.destinations.map(d => d.priority));
+            const minPriorityB = Math.min(...b.destinations.map(d => d.priority));
+            return minPriorityA - minPriorityB;
+        });
+}
+function findNetworkCoordinates(nodes, ways, nodeWays, nodePositions, lon, lat) {
+    const startNodes = new Set();
+    const guidepostNode = nodes.find(n => 
+        Math.abs(n.lat - lat) < 0.0001 && Math.abs(n.lon - lon) < 0.0001
+    );
+    
+    if (guidepostNode) {
+        startNodes.add(guidepostNode.id);
+        nodes.forEach(n => {
+            if (Math.abs(n.lat - lat) < 0.0002 && Math.abs(n.lon - lon) < 0.0002) {
+                startNodes.add(n.id);
+            }
+        });
+    }
+
+    const networkCoords = new Set();
+    const visited = new Set();
+
+    function traverseNetwork(nodeId, currentWayId = null, visitedWays = new Set()) {
+        const nodePos = nodePositions.get(nodeId);
+        if (!nodePos) return;
+        
+        networkCoords.add(nodePos.join(','));
+        
+        if (!currentWayId) {
+            const connectedWays = Array.from(nodeWays.get(nodeId) || new Set()).sort();
+            for (const wayId of connectedWays) {
+                if (!visitedWays.has(wayId)) {
+                    traverseNetwork(nodeId, wayId, new Set(visitedWays));
+                }
+            }
+            return;
+        }
+        
+        if (!visitedWays.has(currentWayId)) {
+            visitedWays.add(currentWayId);
+            const way = ways.find(w => w.id === currentWayId);
+            if (way) {
+                const nodeIndex = way.nodes.indexOf(nodeId);
+                if (nodeIndex !== -1) {
+                    const directions = [];
+                    
+                    if (nodeIndex < way.nodes.length - 1) {
+                        directions.push(way.nodes[way.nodes.length - 1]);
+                    }
+                    
+                    if (nodeIndex > 0) {
+                        directions.push(way.nodes[0]);
+                    }
+                    
+                    for (const nextNodeId of directions) {
+                        const connectedWays = Array.from(nodeWays.get(nextNodeId) || new Set());
+                        
+                        for (const nextWayId of connectedWays) {
+                            if (!visitedWays.has(nextWayId)) {
+                                traverseNetwork(nextNodeId, nextWayId, new Set(visitedWays));
+                            }
+                        }
+                    }
+                }
+            }
+            visitedWays.delete(currentWayId);
+        }
+    }
+
+    for (const startNodeId of startNodes) {
+        traverseNetwork(startNodeId);
+    }
+
+    return Array.from(networkCoords).map(str => str.split(',').map(parseFloat));
+}
+function getAvailableDirections(networkCoords, startPoint) {
+    // Find the closest point in the network to the start point
+    const startPointTurf = turf.point([startPoint.lng, startPoint.lat]);
+    let nearestIndex = 0;
+    let minDistance = Infinity;
+    
+    networkCoords.forEach((coord, index) => {
+        const distance = turf.distance(startPointTurf, turf.point(coord));
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestIndex = index;
+        }
+    });
+
+    // Get connected segments
+    const directions = new Set();
+    const SEGMENT_DISTANCE = 0.05; // 50m segments
+
+    // Look for segments connected to the nearest point
+    for (let i = 0; i < networkCoords.length - 1; i++) {
+        const start = networkCoords[i];
+        const end = networkCoords[i + 1];
+        
+        // Check if this segment is connected to our point
+        const startDist = turf.distance(startPointTurf, turf.point(start));
+        const endDist = turf.distance(startPointTurf, turf.point(end));
+        
+        if (startDist < SEGMENT_DISTANCE || endDist < SEGMENT_DISTANCE) {
+            // Calculate bearing for this segment
+            const bearing = turf.bearing(
+                turf.point(start),
+                turf.point(end)
+            );
+            directions.add(getCardinalDirection(bearing));
+        }
+    }
+
+    return Array.from(directions);
+}
+function getTrailDirections(networkCoords, startPoint) {
+    const startPointTurf = turf.point([startPoint.lng, startPoint.lat]);
+    const NEAR_DISTANCE = 0.02; // 20 meters
+    const MIN_ANGLE_DIFF = 20; // Minimum angle difference to consider paths distinct
+    
+    // Find segments that start near the guidepost
+    const startSegments = [];
+    
+    // First pass: find all segments connected to the guidepost
+    for (let i = 0; i < networkCoords.length - 1; i++) {
+        const start = networkCoords[i];
+        const end = networkCoords[i + 1];
+        
+        const startDist = turf.distance(startPointTurf, turf.point(start), {units: 'kilometers'});
+        const endDist = turf.distance(startPointTurf, turf.point(end), {units: 'kilometers'});
+        
+        if (startDist < NEAR_DISTANCE || endDist < NEAR_DISTANCE) {
+            // Calculate bearing away from guidepost
+            const bearing = startDist < endDist ?
+                turf.bearing(turf.point(start), turf.point(end)) :
+                turf.bearing(turf.point(end), turf.point(start));
+            
+            startSegments.push({
+                direction: getCardinalDirection(bearing),
+                coords: [start, end],
+                bearing: bearing
+            });
+        }
+    }
+    
+    // Consolidate similar directions
+    const uniqueDirections = [];
+    startSegments.forEach(segment => {
+        const isUnique = !uniqueDirections.some(existing => {
+            let angleDiff = Math.abs(existing.bearing - segment.bearing);
+            if (angleDiff > 180) angleDiff = 360 - angleDiff;
+            return angleDiff < MIN_ANGLE_DIFF;
+        });
+        
+        if (isUnique) {
+            uniqueDirections.push(segment);
+        }
+    });
+    
+    return uniqueDirections;
+}
+function getPathDirections(networkCoords, startPoint) {
+    const startPointTurf = turf.point([startPoint.lng, startPoint.lat]);
+    const NEAR_DISTANCE = 0.02; // 20 meters
+    const MIN_ANGLE_DIFF = 45; // Increased from 20 to 45 degrees - more strict about distinct paths
+    
+    // Find segments that start near the guidepost
+    const nearbySegments = [];
+    
+    // First find all segments that are very close to the guidepost
+    for (let i = 0; i < networkCoords.length - 1; i++) {
+        const start = networkCoords[i];
+        const end = networkCoords[i + 1];
+        
+        const startDist = turf.distance(startPointTurf, turf.point(start), {units: 'kilometers'});
+        const endDist = turf.distance(startPointTurf, turf.point(end), {units: 'kilometers'});
+        
+        if (startDist < NEAR_DISTANCE || endDist < NEAR_DISTANCE) {
+            // Use multiple points along the segment to get a more accurate direction
+            const segment = turf.lineString([start, end]);
+            const length = turf.length(segment, {units: 'kilometers'});
+            const points = [];
+            
+            // Sample several points along the segment
+            for (let j = 0; j < 5; j++) {
+                const point = turf.along(segment, length * j / 4, {units: 'kilometers'});
+                points.push(point.geometry.coordinates);
+            }
+            
+            // Calculate bearing using multiple points for more accuracy
+            const bearing = startDist < endDist ?
+                turf.bearing(turf.point(points[0]), turf.point(points[points.length - 1])) :
+                turf.bearing(turf.point(points[points.length - 1]), turf.point(points[0]));
+            
+            nearbySegments.push({
+                path: {
+                    start: startDist < endDist ? start : end,
+                    end: startDist < endDist ? end : start,
+                    points: points
+                },
+                bearing: bearing,
+                direction: getCardinalDirection(bearing),
+                distance: Math.min(startDist, endDist)
+            });
+        }
+    }
+    
+    // Sort by distance to start point
+    nearbySegments.sort((a, b) => a.distance - b.distance);
+    
+    // Use only the closest segments for determining initial directions
+    const closestSegments = nearbySegments.filter(seg => seg.distance < NEAR_DISTANCE * 0.5);
+    
+    // Consolidate similar paths
+    const uniquePaths = [];
+    closestSegments.forEach(segment => {
+        const isUnique = !uniquePaths.some(existing => {
+            let angleDiff = Math.abs(existing.bearing - segment.bearing);
+            if (angleDiff > 180) angleDiff = 360 - angleDiff;
+            return angleDiff < MIN_ANGLE_DIFF;
+        });
+        
+        if (isUnique) {
+            uniquePaths.push(segment);
+        }
+    });
+    
+    console.log('Initial path directions:', uniquePaths.map(p => ({
+        direction: p.direction,
+        bearing: p.bearing,
+        distance: p.distance
+    })));
+    
+    return uniquePaths;
+}
+
+// Update how we process POIs based on path directions
+function processNetwork(pois, startPoint, networkCoords) {
+    // Get the actual paths from the guidepost
+    const paths = getPathDirections(networkCoords, startPoint);
+    const poisByPath = new Map();
+    
+    // Initialize collections for each path
+    paths.forEach(path => {
+        poisByPath.set(path.direction, []);
+    });
+    
+    // Assign POIs to nearest path
+    pois.forEach(poi => {
+        let bestPath = null;
+        let minAngleDiff = 180;
+        
+        const poiBearing = turf.bearing(
+            turf.point([startPoint.lng, startPoint.lat]),
+            turf.point(poi.geometry.coordinates)
+        );
+        
+        // Find which physical path this POI belongs to
+        paths.forEach(path => {
+            let angleDiff = Math.abs(path.bearing - poiBearing);
+            if (angleDiff > 180) angleDiff = 360 - angleDiff;
+            
+            if (angleDiff < minAngleDiff) {
+                minAngleDiff = angleDiff;
+                bestPath = path;
+            }
+        });
+        
+        if (bestPath && poisByPath.has(bestPath.direction)) {
+            poisByPath.get(bestPath.direction).push({
+                ...poi,
+                pathBearing: bestPath.bearing
+            });
+        }
+    });
+    
+    return Array.from(poisByPath.entries())
+        .filter(([_, pois]) => pois.length > 0)
+        .map(([direction, pois]) => ({
+            direction,
+            destinations: pois
+                .sort((a, b) => {
+                    if (a.priority !== b.priority) return a.priority - b.priority;
+                    return a.distance - b.distance;
+                })
+                .slice(0, 3)
+        }))
+        .sort((a, b) => {
+            const minPriorityA = Math.min(...a.destinations.map(d => d.priority));
+            const minPriorityB = Math.min(...b.destinations.map(d => d.priority));
+            return minPriorityA - minPriorityB;
+        });
+}
+function findPathToDestination(networkCoords, startPoint, endPoint) {
+    const startPointTurf = turf.point([startPoint.lng, startPoint.lat]);
+    const endPointTurf = turf.point(endPoint);
+    
+    // Find closest network point to start and end
+    let startNodeIndex = 0;
+    let endNodeIndex = 0;
+    let minStartDist = Infinity;
+    let minEndDist = Infinity;
+    
+    networkCoords.forEach((coord, index) => {
+        const pointTurf = turf.point(coord);
+        const startDist = turf.distance(startPointTurf, pointTurf);
+        const endDist = turf.distance(endPointTurf, pointTurf);
+        
+        if (startDist < minStartDist) {
+            minStartDist = startDist;
+            startNodeIndex = index;
+        }
+        if (endDist < minEndDist) {
+            minEndDist = endDist;
+            endNodeIndex = index;
+        }
+    });
+    
+    // Build adjacency graph
+    const graph = new Map();
+    for (let i = 0; i < networkCoords.length - 1; i++) {
+        const current = networkCoords[i].join(',');
+        const next = networkCoords[i + 1].join(',');
+        
+        if (!graph.has(current)) graph.set(current, new Set());
+        if (!graph.has(next)) graph.set(next, new Set());
+        
+        graph.get(current).add(next);
+        graph.get(next).add(current); // Paths are bidirectional
+    }
+    
+    // Find path using BFS
+    const startKey = networkCoords[startNodeIndex].join(',');
+    const endKey = networkCoords[endNodeIndex].join(',');
+    const visited = new Set();
+    const queue = [[startKey]];
+    visited.add(startKey);
+    
+    while (queue.length > 0) {
+        const path = queue.shift();
+        const current = path[path.length - 1];
+        
+        if (current === endKey) {
+            // Convert path back to coordinates
+            return path.map(key => key.split(',').map(Number));
+        }
+        
+        const neighbors = graph.get(current) || new Set();
+        for (const neighbor of neighbors) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push([...path, neighbor]);
+            }
+        }
+    }
+    
+    return null;
+}
+function findRelevantRoutes(networkCoords, directionalResults, startPoint) {
+    const relevantWays = [];
+    const processedPaths = new Set();
+    
+    directionalResults.forEach((dirResult, dirIndex) => {
+        // For each destination in this direction
+        dirResult.destinations.forEach(poi => {
+            const path = findPathToDestination(
+                networkCoords,
+                startPoint,
+                poi.geometry.coordinates
+            );
+            
+            if (path) {
+                // Create segments from the path
+                for (let i = 0; i < path.length - 1; i++) {
+                    const pathKey = `${path[i].join(',')}-${path[i + 1].join(',')}`;
+                    const reverseKey = `${path[i + 1].join(',')}-${path[i].join(',')}`;
+                    
+                    if (!processedPaths.has(pathKey) && !processedPaths.has(reverseKey)) {
+                        processedPaths.add(pathKey);
+                        relevantWays.push({
+                            type: 'Feature',
+                            properties: {
+                                color: dirIndex === 0 ? '#00FF00' : // green
+                                       dirIndex === 1 ? '#FF0000' : // red
+                                                      '#FF69B4',    // pink
+                                direction: dirResult.direction,
+                                destination: poi.name
+                            },
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: [path[i], path[i + 1]]
+                            }
+                        });
+                    }
+                }
+            }
+        });
+    });
+    
+    return relevantWays;
+}
+
+// =====================
+// Distance and Time Calculations
+// =====================
 function calculateHikingTime(distance, elevationGain, difficulty) {
-    if (DEBUG.enabled) {
-        console.log('Calculating hiking time:', { distance, elevationGain, difficulty });
-    }
     const baseSpeed = 4.5;
     const slope = distance > 0 ? elevationGain / (distance * 1000) : 0;
     const speedFactor = Math.exp(-3.5 * Math.abs(slope + 0.05));
@@ -908,106 +1733,112 @@ function calculateHikingTime(distance, elevationGain, difficulty) {
     const minutes = Math.round((totalTime - hours) * 60);
     return `${hours}h${minutes.toString().padStart(2, '0')}`;
 }
+// =====================
+// Visualization Functions
+// =====================
+function setupMapLayers(map, routeFeatures) {
+    // Clean up ALL existing layers
+    ['route-lines', 'debug-network', 'debug-nodes', 'debug-pois'].forEach(id => {
+        if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(id)) map.removeSource(id);
+    });
 
-// Constants for direction calculation
-const DIRECTION_CALC = {
-    SAMPLE_POINTS: 5,          // Number of points to sample along initial path
-    SAMPLE_DISTANCE: 0.1,      // Distance between sample points in km
-    BEARING_WEIGHT: 0.6        // Weight for initial bearing vs average bearing
-};
-
-function getCardinalDirection(bearing) {
-    // Normalize bearing to 0-360
-    bearing = (bearing + 360) % 360;
-    
-    // Define direction ranges with 45° segments centered on cardinal/intercardinal directions
-    if (bearing >= 337.5 || bearing < 22.5) return '↑ N';
-    if (bearing >= 22.5 && bearing < 67.5) return '↗ NE';
-    if (bearing >= 67.5 && bearing < 112.5) return '→ E';
-    if (bearing >= 112.5 && bearing < 157.5) return '↘ SE';
-    if (bearing >= 157.5 && bearing < 202.5) return '↓ S';
-    if (bearing >= 202.5 && bearing < 247.5) return '↙ SW';
-    if (bearing >= 247.5 && bearing < 292.5) return '← W';
-    if (bearing >= 292.5 && bearing < 337.5) return '↖ NW';
-    return '↑ N';
-}
-
-function calculatePathDirection(startPoint, coords) {
-    if (coords.length < 2) return null;
-    
-    // Take a point sufficiently far along the path (50m or 0.05km)
-    const pathLine = turf.lineString(coords);
-    const pathLength = turf.length(pathLine, { units: 'kilometers' });
-    const sampleDistance = Math.min(0.05, pathLength / 2);
-    
-    const pointAhead = turf.along(pathLine, sampleDistance, { units: 'kilometers' });
-    
-    const bearing = turf.bearing(
-        turf.point([startPoint.lng, startPoint.lat]),
-        pointAhead
-    );
-    
-    return getCardinalDirection(bearing);
-}
-
-function validateDirectionCalculation(startPoint, coords, direction) {
-    if (DEBUG.enabled) {
-        const line = turf.lineString(coords);
-        const length = turf.length(line, { units: 'kilometers' });
-        const endPoint = turf.point(coords[coords.length - 1]);
-        const straightBearing = turf.bearing(
-            turf.point([startPoint.lng, startPoint.lat]),
-            endPoint
-        );
-
-        console.log('Direction validation:', {
-            calculatedDirection: direction,
-            straightLineBearing: getCardinalDirection(straightBearing),
-            pathLength: length,
-            pointCount: coords.length
-        });
-    }
-}
-
-
-function findClosestNode(point, nodes) {
-    let closestNode = null;
-    let minDist = Infinity;
-    
-    for (let i = 0; i < nodes.length; i++) {
-        const dist = turf.distance(point, turf.point(nodes[i]), { units: 'kilometers' });
-        if (dist < minDist) {
-            minDist = dist;
-            closestNode = i;
+    // Only add the route visualization
+    map.addSource('route-lines', {
+        type: 'geojson',
+        data: {
+            type: 'FeatureCollection',
+            features: routeFeatures
         }
-    }
-    
-    if (DEBUG.enabled && closestNode !== null) {
-        console.log(`Found closest node: ${closestNode} at distance: ${minDist.toFixed(3)}km`);
-    }
-    
-    return closestNode;
-}
+    });
 
-function orientEdgeAtNode(network, edge, fromNode) {
-    let lineCoords = edge.coords;
-    const fromNodeCoord = network.nodes[fromNode];
-    if (!coordsEqual(fromNodeCoord, lineCoords[0])) {
-        lineCoords = [...lineCoords].reverse();
-    }
-    return lineCoords;
+    map.addLayer({
+        id: 'route-lines',
+        type: 'line',
+        source: 'route-lines',
+        layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+        },
+        paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 3,
+            'line-opacity': 0.8
+        }
+    });
 }
+// =====================
+// Main Function with Debug Support
+// =====================
+function processOsmData(data, lon, lat, feature) {
+    console.log('Processing OSM data for:', feature.properties);
 
-function sliceFromSignpost(signpostPoint, lineCoords) {
-    const fullLine = turf.lineString(lineCoords);
-    const nearest = turf.nearestPointOnLine(fullLine, turf.point([signpostPoint.lng, signpostPoint.lat]));
-    if (nearest.properties.location > 0) {
-        const sliced = turf.lineSlice(nearest, turf.point(lineCoords[lineCoords.length - 1]), fullLine);
-        return sliced.geometry.coordinates;
-    }
-    return lineCoords;
+    // Extract OSM elements by type
+    const ways = data.elements.filter(el => el.type === 'way' && el.nodes?.length > 1);
+    const nodes = data.elements.filter(el => el.type === 'node');
+
+    // Initialize starting point
+    const startPoint = {
+        lng: lon,
+        lat: lat,
+        ele: feature.properties.ele || 0
+    };
+
+    // Build node lookup maps
+    const nodeWays = new Map();
+    const nodePositions = new Map();
+
+    ways.forEach(way => {
+        way.nodes.forEach(nodeId => {
+            if (!nodeWays.has(nodeId)) {
+                nodeWays.set(nodeId, new Set());
+                const node = nodes.find(n => n.id === nodeId);
+                if (node) {
+                    nodePositions.set(nodeId, [node.lon, node.lat]);
+                }
+            }
+            nodeWays.get(nodeId).add(way.id);
+        });
+    });
+
+    // Get network coordinates
+    const networkCoords = findNetworkCoordinates(nodes, ways, nodeWays, nodePositions, lon, lat);
+
+    // Find POIs along the network
+    const pois = findPOIsForNetwork(networkCoords, startPoint, data);
+    console.log('Found POIs:', pois);
+
+    // Process POIs into directional groups
+    const directionalResults = processNetwork(pois, startPoint, networkCoords);
+    console.log('Directional results:', directionalResults);
+
+    // Get only the relevant routes for visualization
+    const relevantRoutes = findRelevantRoutes(networkCoords, directionalResults, startPoint);
+
+    // Create and display the popup
+    const content = createSignpostPopup(
+        directionalResults,
+        feature.properties.name || 'Signpost',
+        feature.properties.ele
+    );
+
+    // Position and display the popup
+    const popup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: false,
+        maxWidth: '500px',
+        className: 'signpost-popup'
+    })
+        .setLngLat([lon, lat])
+        .setHTML(content)
+        .addTo(map);
+
+    return {
+        pois,
+        directionalResults,
+        networkCoords
+    };
 }
-
 function createSignpostPopup(results, signpostLabel, signpostElevation) {
     if (!results || results.length === 0) {
         return `
@@ -1091,1236 +1922,56 @@ function createSignpostPopup(results, signpostLabel, signpostElevation) {
     `;
 }
 
-function coordsEqual(a, b) {
-    return Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
-}
-
-function combineCoords(a, b) {
-    if (DEBUG.enabled) {
-        console.log('Combining coordinates:', {
-            aLength: a.length,
-            bLength: b.length,
-            endpointsMatch: coordsEqual(a[a.length - 1], b[0])
-        });
-    }
-    if (coordsEqual(a[a.length - 1], b[0])) {
-        return a.concat(b.slice(1));
-    } else {
-        return a.concat(b);
-    }
-}
-
-// =====================
-// Network Building with Debug Info
-// =====================
-function findOrCreateNodeWithFusion(nodes, coord, edges) {
-    const coordPoint = turf.point(coord);
-    const debugInfo = {
-        coord: coord,
-        nearbyNodes: [],
-        nearbyPaths: [],
-        intersectionDetails: [],
-        creationReason: '',
-        decisionPath: []
-    };
-
-    // First check existing nodes
-    for (let i = 0; i < nodes.length; i++) {
-        if (nodes[i] === null) continue;
-        const dist = turf.distance(coordPoint, turf.point(nodes[i]), { units: 'kilometers' });
-        if (dist < CONFIG.NODE_CONNECTION_TOLERANCE) {
-            debugInfo.creationReason = 'reused_existing_node';
-            debugInfo.decisionPath.push(`Found existing node ${i} at ${dist.toFixed(5)}km`);
-            if (DEBUG.enabled) {
-                console.log('Node creation debug:', debugInfo);
-                visualizeNodeAnalysis(coordPoint, edges, debugInfo);
-            }
-            return i;
-        }
-    }
-
-    // Analyze nearby paths
-    let connectedPaths = [];
-    edges.forEach((edge, edgeIndex) => {
-        if (!edge.coords || edge.coords.length < 2) return;
+// Usage in click handler
+map.on('click', 'poisth', async (e) => {
+    const feature = e.features[0];
+    if (feature.properties.feature === 'information' && 
+        feature.properties.information === 'guidepost') {
+        const [lon, lat] = feature.geometry.coordinates;
 
         try {
-            const line = turf.lineString(edge.coords);
-            const nearest = turf.nearestPointOnLine(line, coordPoint);
-            const dist = nearest.properties.dist;
-
-            if (dist < CONFIG.NODE_CONNECTION_TOLERANCE) {
-                const pathInfo = {
-                    edgeIndex,
-                    distance: dist,
-                    location: nearest.properties.location,
-                    angle: calculatePathAngle(edge.coords, nearest.properties.index),
-                    coords: edge.coords
-                };
-
-                // Calculate entry and exit angles at this point
-                const segmentBefore = nearest.properties.index > 0 ? 
-                    turf.bearing(
-                        turf.point(edge.coords[nearest.properties.index - 1]),
-                        turf.point(edge.coords[nearest.properties.index])
-                    ) : null;
-                
-                const segmentAfter = nearest.properties.index < edge.coords.length - 1 ?
-                    turf.bearing(
-                        turf.point(edge.coords[nearest.properties.index]),
-                        turf.point(edge.coords[nearest.properties.index + 1])
-                    ) : null;
-
-                pathInfo.segmentBefore = segmentBefore;
-                pathInfo.segmentAfter = segmentAfter;
-                connectedPaths.push(pathInfo);
-            }
-        } catch (error) {
-            debugInfo.decisionPath.push(`Error analyzing edge ${edgeIndex}: ${error.message}`);
-        }
-    });
-
-    // Analyze path connectivity
-    let isIntersection = false;
-    let isEndpoint = false;
-
-    if (connectedPaths.length >= 2) {
-        // Check if paths have significantly different angles
-        for (let i = 0; i < connectedPaths.length; i++) {
-            for (let j = i + 1; j < connectedPaths.length; j++) {
-                const angleDiff = Math.abs(connectedPaths[i].angle - connectedPaths[j].angle);
-                if (angleDiff > 30 && angleDiff < 330) { // More than 30 degrees difference
-                    isIntersection = true;
-                    debugInfo.decisionPath.push(
-                        `Found intersection: paths ${i} and ${j} differ by ${angleDiff.toFixed(1)} degrees`
-                    );
-                }
-            }
-        }
-    }
-
-    // Check for true endpoints
-    connectedPaths.forEach(path => {
-        const isStart = path.location < 0.01; // Within 1% of path start
-        const isEnd = path.location > 0.99;   // Within 1% of path end
-        if (isStart || isEnd) {
-            isEndpoint = true;
-            debugInfo.decisionPath.push(
-                `Found endpoint: path ${path.edgeIndex} location ${path.location.toFixed(3)}`
-            );
-        }
-    });
-
-    debugInfo.pathAnalysis = {
-        connectedPaths: connectedPaths.length,
-        isIntersection,
-        isEndpoint
-    };
-
-    // Create node only if it's a true intersection or endpoint
-    if (isIntersection || isEndpoint) {
-        const newNodeIndex = nodes.length;
-        nodes.push(coord);
-        
-        debugInfo.creationReason = isEndpoint ? 'true_endpoint' : 'true_intersection';
-        debugInfo.decisionPath.push(
-            `Created node ${newNodeIndex} due to ${debugInfo.creationReason}`
-        );
-
-        if (DEBUG.enabled) {
-            console.log('Node creation debug:', debugInfo);
-            visualizeNodeAnalysis(coordPoint, edges, debugInfo);
-        }
-        return newNodeIndex;
-    }
-
-    // If not a node, find closest existing node
-    let closestNodeIndex = null;
-    let minDist = Infinity;
-    
-    for (let i = 0; i < nodes.length; i++) {
-        if (nodes[i] === null) continue;
-        const dist = turf.distance(coordPoint, turf.point(nodes[i]), { units: 'kilometers' });
-        if (dist < minDist) {
-            minDist = dist;
-            closestNodeIndex = i;
-        }
-    }
-
-    if (DEBUG.enabled) {
-        debugInfo.creationReason = 'using_closest_node';
-        console.log('Node creation debug:', debugInfo);
-        visualizeNodeAnalysis(coordPoint, edges, debugInfo);
-    }
-
-    return closestNodeIndex || 0;
-}
-
-// Helper function to calculate path angle at a point
-function calculatePathAngle(coords, index) {
-    if (index < 0 || index >= coords.length - 1) return 0;
-    return turf.bearing(
-        turf.point(coords[index]),
-        turf.point(coords[index + 1])
-    );
-}
-
-// Visualization helper
-function visualizeNodeAnalysis(point, edges, debugInfo) {
-    if (!DEBUG.enabled) return;
-
-    // Remove existing analysis visualization
-    ['debug-node-analysis'].forEach(id => {
-        if (map.getLayer(id)) map.removeLayer(id);
-        if (map.getSource(id)) map.removeSource(id);
-    });
-
-    // Create visualization features
-    const features = [];
-
-    // Add point being analyzed
-    features.push({
-        type: 'Feature',
-        properties: {
-            type: 'analysis_point',
-            reason: debugInfo.creationReason
-        },
-        geometry: {
-            type: 'Point',
-            coordinates: point.geometry.coordinates
-        }
-    });
-
-    // Add connected paths
-    debugInfo.nearbyPaths.forEach(path => {
-        features.push({
-            type: 'Feature',
-            properties: {
-                type: 'nearby_path',
-                distance: path.distance,
-                angle: path.angle
-            },
-            geometry: {
-                type: 'LineString',
-                coordinates: path.coords
-            }
-        });
-    });
-
-    // Add the visualization layer
-    map.addSource('debug-node-analysis', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: features
-        }
-    });
-
-    map.addLayer({
-        id: 'debug-node-analysis',
-        type: 'circle',
-        source: 'debug-node-analysis',
-        filter: ['==', ['get', 'type'], 'analysis_point'],
-        paint: {
-            'circle-radius': 8,
-            'circle-color': [
-                'match',
-                ['get', 'reason'],
-                'true_intersection', '#FF0000',
-                'true_endpoint', '#00FF00',
-                'reused_existing_node', '#0000FF',
-                '#FFFF00'
-            ],
-            'circle-opacity': 0.7
-        }
-    });
-}
-
-// Add this cleanup function to be called after network building
-function cleanupNodes(network) {
-    if (!DEBUG.enabled) return network;
-
-    const oldToNewIndex = new Map();
-    const newNodes = [];
-    let remappedCount = 0;
-
-    // Create new nodes array without null entries
-    network.nodes.forEach((node, oldIndex) => {
-        if (node !== null) {
-            oldToNewIndex.set(oldIndex, newNodes.length);
-            newNodes.push(node);
-        }
-    });
-
-    // Remap edges to use new node indices
-    network.edges = network.edges.map(edge => ({
-        ...edge,
-        start: oldToNewIndex.get(edge.start),
-        end: oldToNewIndex.get(edge.end)
-    }));
-
-    // Rebuild adjacency list with new indices
-    const newAdjacency = new Map();
-    for (let i = 0; i < newNodes.length; i++) {
-        newAdjacency.set(i, []);
-    }
-
-    for (const [oldIndex, edges] of network.adjacency) {
-        const newIndex = oldToNewIndex.get(oldIndex);
-        if (newIndex !== undefined) {
-            newAdjacency.set(newIndex, edges.map(edge => ({
-                ...edge,
-                start: oldToNewIndex.get(edge.start),
-                end: oldToNewIndex.get(edge.end)
-            })));
-        }
-    }
-
-    if (DEBUG.enabled) {
-        console.log('Node cleanup results:', {
-            originalNodes: network.nodes.length,
-            newNodes: newNodes.length,
-            remappedEdges: network.edges.length
-        });
-    }
-
-    return {
-        ...network,
-        nodes: newNodes,
-        adjacency: newAdjacency
-    };
-}
-
-function buildPathNetwork(lineFeatures) {
-    if (DEBUG.enabled) {
-        console.log('Building network from features:', lineFeatures.length);
-    }
-
-    const nodes = [];
-    const edges = [];
-    const debugInfo = {
-        skippedFeatures: 0,
-        shortLines: 0,
-        addedEdges: 0,
-        fusedNodes: 0
-    };
-
-    // First pass: create initial edges
-    for (const f of lineFeatures) {
-        if (!f.geometry || f.geometry.type !== 'LineString') {
-            debugInfo.skippedFeatures++;
-            continue;
-        }
-        const coords = f.geometry.coordinates;
-        if (coords.length < 2) {
-            debugInfo.shortLines++;
-            continue;
-        }
-
-        edges.push({
-            coords: coords,
-            difficulty: f.properties.sac_scale || 'road'
-        });
-        debugInfo.addedEdges++;
-    }
-
-    // Second pass: build nodes with fusion
-    const networkEdges = [];
-    for (const edge of edges) {
-        const startNode = findOrCreateNodeWithFusion(nodes, edge.coords[0], edges);
-        const endNode = findOrCreateNodeWithFusion(nodes, edge.coords[edge.coords.length - 1], edges);
-
-        networkEdges.push({
-            start: startNode,
-            end: endNode,
-            coords: edge.coords,
-            difficulty: edge.difficulty
-        });
-    }
-
-
-    // Build adjacency list
-    const adjacency = new Map();
-    for (let i = 0; i < nodes.length; i++) {
-        adjacency.set(i, []);
-    }
-
-    for (const e of networkEdges) {
-        const length = turf.length(turf.lineString(e.coords), { units: 'kilometers' });
-
-        adjacency.get(e.start).push({
-            start: e.start,
-            end: e.end,
-            coords: e.coords,
-            difficulty: e.difficulty,
-            length: length
-        });
-
-        adjacency.get(e.end).push({
-            start: e.end,
-            end: e.start,
-            coords: [...e.coords].reverse(),
-            difficulty: e.difficulty,
-            length: length
-        });
-    }
-
-    if (DEBUG.enabled) {
-        console.log('Network building statistics:', {
-            ...debugInfo,
-            finalNodes: nodes.length,
-            finalEdges: networkEdges.length
-        });
-    }
-
-    return { nodes, edges: networkEdges, adjacency, debugInfo };
-}
-
-// =====================
-// Route Building with Debug Visualization
-// =====================
-
-function buildRoutesFromSignpost(network, startNode, signpostPoint) {
-    const routes = [];
-    const visitedEdges = new Set();
-    const visitedNodes = new Set([startNode]);  // Track visited nodes
-    const queue = [];
-    const debugInfo = {
-        totalRoutes: 0,
-        truncatedRoutes: 0,
-        maxRouteLength: 0,
-        minRouteLength: Infinity,
-        processedEdges: 0,
-        directionsFound: 0,
-        loopsPrevented: 0,
-        terminationReasons: {
-            max_distance: 0,
-            cycle: 0,
-            no_advance: 0,
-            all_visited: 0
-        }
-    };
-
-    // Get and sort initial edges by direction
-    const initialEdges = network.adjacency.get(startNode) || [];
-    const edgesByDirection = new Map();
-    
-    if (DEBUG.enabled) {
-        console.log(`Starting route building from node ${startNode} with ${initialEdges.length} initial edges`);
-    }
-    
-    // Group initial edges by direction
-    initialEdges.forEach(edge => {
-        const direction = calculatePathDirection(signpostPoint, edge.coords);
-        
-        if (!edgesByDirection.has(direction)) {
-            edgesByDirection.set(direction, []);
-            debugInfo.directionsFound++;
-        }
-        edgesByDirection.get(direction).push(edge);
-    });
-
-    // Take limited edges per direction to prevent explosion
-    const limitedInitialEdges = [];
-    edgesByDirection.forEach((edges, direction) => {
-        const sortedEdges = edges.sort((a, b) => {
-            const lengthA = turf.length(turf.lineString(a.coords), { units: 'kilometers' });
-            const lengthB = turf.length(turf.lineString(b.coords), { units: 'kilometers' });
-            return lengthA - lengthB;
-        });
-        limitedInitialEdges.push(...sortedEdges.slice(0, CONFIG.EDGES_PER_DIRECTION));
-    });
-
-    // Process initial edges
-    for (const e of limitedInitialEdges) {
-        let lineCoords = orientEdgeAtNode(network, e, startNode);
-        lineCoords = sliceFromSignpost(signpostPoint, lineCoords);
-        const dist = turf.length(turf.lineString(lineCoords), { units: 'kilometers' });
-        const edgeKey = `${Math.min(e.start, e.end)}-${Math.max(e.start, e.end)}`;
-        
-        debugInfo.processedEdges++;
-        visitedEdges.add(edgeKey);
-        visitedNodes.add(e.end);
-
-        if (dist >= CONFIG.MAX_ROUTE_DISTANCE) {
-            const partial = turf.lineSliceAlong(
-                turf.lineString(lineCoords),
-                0,
-                CONFIG.MAX_ROUTE_DISTANCE,
-                { units: 'kilometers' }
-            );
-            routes.push(partial.geometry.coordinates);
-            debugInfo.truncatedRoutes++;
-            debugInfo.terminationReasons.max_distance++;
-            continue;
-        }
-
-        queue.push({
-            currentNode: e.end,
-            coords: lineCoords,
-            distance: dist,
-            previousNode: startNode,
-            depth: 1,
-            direction: calculatePathDirection(signpostPoint, lineCoords)
-        });
-    }
-
-    const MAX_DEPTH = 50; // Prevent infinite recursion
-
-    // Process the queue
-    while (queue.length > 0) {
-        const state = queue.shift();
-        const { currentNode, coords, distance, previousNode, depth, direction } = state;
-
-        if (depth > MAX_DEPTH) {
-            if (DEBUG.enabled) {
-                console.log(`Max depth reached at node ${currentNode}`);
-            }
-            routes.push(coords);
-            debugInfo.totalRoutes++;
-            debugInfo.terminationReasons.cycle++;
-            continue;
-        }
-
-        if (distance >= CONFIG.MAX_ROUTE_DISTANCE) {
-            routes.push(coords);
-            debugInfo.totalRoutes++;
-            debugInfo.terminationReasons.max_distance++;
-            continue;
-        }
-
-        const nextEdges = network.adjacency.get(currentNode) || [];
-        let validEdgesFound = false;
-
-        for (const e of nextEdges) {
-            debugInfo.processedEdges++;
-
-            // Skip if edge leads back to previous node or any visited node
-            if (visitedNodes.has(e.end)) {
-                debugInfo.loopsPrevented++;
-                continue;
-            }
-
-            // Check if edge has been visited
-            const edgeKey = `${Math.min(e.start, e.end)}-${Math.max(e.start, e.end)}`;
-            if (visitedEdges.has(edgeKey)) {
-                continue;
-            }
-
-            let lineCoords = orientEdgeAtNode(network, e, currentNode);
-            const segmentDist = turf.length(turf.lineString(lineCoords), { units: 'kilometers' });
+            const query = getOverpassQuery(lat, lon);
+            console.log('Overpass Query:', query); // Debug log
             
-            // Skip very short segments
-            if (segmentDist < CONFIG.MIN_SEGMENT_LENGTH) {
-                continue;
-            }
-
-            const newDistance = distance + segmentDist;
-            visitedEdges.add(edgeKey);
-            visitedNodes.add(e.end);
-
-            if (newDistance > CONFIG.MAX_ROUTE_DISTANCE) {
-                const needed = CONFIG.MAX_ROUTE_DISTANCE - distance;
-                const partial = turf.lineSliceAlong(
-                    turf.lineString(lineCoords),
-                    0,
-                    needed,
-                    { units: 'kilometers' }
-                );
-                routes.push(combineCoords(coords, partial.geometry.coordinates));
-                debugInfo.truncatedRoutes++;
-                debugInfo.terminationReasons.max_distance++;
-            } else {
-                queue.push({
-                    currentNode: e.end,
-                    coords: combineCoords(coords, lineCoords),
-                    distance: newDistance,
-                    previousNode: currentNode,
-                    depth: depth + 1,
-                    direction
-                });
-            }
-            validEdgesFound = true;
-        }
-
-        if (!validEdgesFound) {
-            routes.push(coords);
-            debugInfo.totalRoutes++;
-            debugInfo.terminationReasons.no_advance++;
-        }
-    }
-
-    if (DEBUG.enabled) {
-        console.log('Route building completed:', {
-            ...debugInfo,
-            finalRoutes: routes.length,
-            averageLength: routes.reduce((sum, route) => 
-                sum + turf.length(turf.lineString(route), { units: 'kilometers' }), 0) / routes.length
-        });
-    }
-
-    return { routes, debugInfo };
-}
-
-// =====================
-// Visualization Functions
-// =====================
-
-function visualizeDebug(network, routes, startPoint) {
-    if (!DEBUG.enabled) return;
-
-    // Remove existing debug layers
-    ['debug-network', 'debug-paths', 'debug-arrows', 'debug-buffer', 'debug-search-area', 'debug-nodes'].forEach(id => {
-        if (map.getLayer(id)) map.removeLayer(id);
-        if (map.getSource(id)) map.removeSource(id);
-    });
-
-    // Visualize full network
-    const networkFeatures = network.edges.map(edge => ({
-        type: 'Feature',
-        properties: { 
-            difficulty: edge.difficulty
-        },
-        geometry: {
-            type: 'LineString',
-            coordinates: edge.coords
-        }
-    }));
-
-    map.addSource('debug-network', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: networkFeatures
-        }
-    });
-
-    map.addLayer({
-        id: 'debug-network',
-        type: 'line',
-        source: 'debug-network',
-        paint: {
-            'line-color': '#999999',
-            'line-width': 1,
-            'line-opacity': 0.3,
-            'line-dasharray': [2, 2]
-        }
-    });
-
-    // Visualize routes with constant offsets
-    const routeFeatures = routes.map((route, index) => {
-        // Calculate offset direction based on index
-        const offsetDistance = 0.00002 * (index % 5); // About 2 meters per offset level
-        const offsetAngle = Math.floor(index / 5) * (Math.PI / 3); // Change angle every 5 routes
-
-        // Apply constant offset to all points along the route
-        const offsetCoords = route.map(coord => {
-            const dx = Math.cos(offsetAngle) * offsetDistance;
-            const dy = Math.sin(offsetAngle) * offsetDistance;
-            return [coord[0] + dx, coord[1] + dy];
-        });
-
-        return {
-            type: 'Feature',
-            properties: {
-                index,
-                length: turf.length(turf.lineString(route), { units: 'kilometers' }).toFixed(2),
-                color: `hsl(${(index * 137.508) % 360}, 70%, 50%)`,
-                offsetAngle: (offsetAngle * 180 / Math.PI).toFixed(1),
-                offsetDistance: (offsetDistance * 111319.9).toFixed(2) // Convert to meters (roughly)
-            },
-            geometry: {
-                type: 'LineString',
-                coordinates: offsetCoords
-            }
-        };
-    });
-
-    map.addSource('debug-paths', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: routeFeatures
-        }
-    });
-
-    map.addLayer({
-        id: 'debug-paths',
-        type: 'line',
-        source: 'debug-paths',
-        paint: {
-            'line-color': ['get', 'color'],
-            'line-width': 3,
-            'line-opacity': 0.6
-        }
-    });
-
-    // Add direction arrows (using offset coordinates)
-    const arrowFeatures = routeFeatures.flatMap(route => {
-        const line = turf.lineString(route.geometry.coordinates);
-        const length = turf.length(line, { units: 'kilometers' });
-        const arrows = [];
-        const arrowSpacing = 0.5; // Place arrows every 500m
-
-        for (let distance = 0.25; distance < length; distance += arrowSpacing) {
-            const point = turf.along(line, distance, { units: 'kilometers' });
-            const bearing = turf.bearing(
-                turf.point(route.geometry.coordinates[0]),
-                point
-            );
-
-            arrows.push({
-                type: 'Feature',
-                properties: {
-                    bearing,
-                    color: route.properties.color
+            const response = await fetch('https://overpass-api.de/api/interpreter', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                geometry: point.geometry
+                body: 'data=' + encodeURIComponent(query)
             });
-        }
-        return arrows;
-    });
 
-    map.addSource('debug-arrows', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: arrowFeatures
-        }
-    });
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Overpass API Error:', text);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
 
-    map.addLayer({
-        id: 'debug-arrows',
-        type: 'symbol',
-        source: 'debug-arrows',
-        layout: {
-            'symbol-placement': 'point',
-            'icon-image': 'arrow',
-            'icon-size': 0.5,
-            'icon-rotate': ['get', 'bearing'],
-            'icon-allow-overlap': true,
-            'icon-ignore-placement': true
-        },
-        paint: {
-            'icon-color': ['get', 'color'],
-            'icon-opacity': 0.8
-        }
-    });
+            const data = await response.json();
+            osmCache.set(feature.properties.id, data);
+            processOsmData(data, lon, lat, feature);
 
-    // Add hover effect for routes with enhanced information
-    map.on('mouseenter', 'debug-paths', (e) => {
-        if (e.features.length > 0) {
-            map.getCanvas().style.cursor = 'pointer';
-            const props = e.features[0].properties;
-            
+        } catch (error) {
+            console.error('Error querying OSM:', error);
             new maplibregl.Popup()
-                .setLngLat(e.lngLat)
+                .setLngLat([lon, lat])
                 .setHTML(`
-                    <div style="font-family: Arial, sans-serif;">
-                        <strong>Route ${props.index}</strong><br>
-                        Length: ${props.length}km<br>
-                        Offset: ${props.offsetDistance}m<br>
-                        Angle: ${props.offsetAngle}°
+                    <div style="padding:10px;">
+                        <strong>Error querying OSM data</strong><br>
+                        ${error.message}
                     </div>
                 `)
                 .addTo(map);
         }
-    });
-
-    map.on('mouseleave', 'debug-paths', () => {
-        map.getCanvas().style.cursor = '';
-    });
-
-    // Visualize network nodes
-    const nodeFeatures = network.nodes.map((node, index) => ({
-        type: 'Feature',
-        properties: { 
-            index,
-            isStart: index === findClosestNode(turf.point([startPoint.lng, startPoint.lat]), network.nodes)
-        },
-        geometry: {
-            type: 'Point',
-            coordinates: node
-        }
-    }));
-
-    map.addSource('debug-nodes', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: nodeFeatures
-        }
-    });
-
-    map.addLayer({
-        id: 'debug-nodes',
-        type: 'circle',
-        source: 'debug-nodes',
-        paint: {
-            'circle-radius': [
-                'case',
-                ['get', 'isStart'],
-                8,
-                4
-            ],
-            'circle-color': [
-                'case',
-                ['get', 'isStart'],
-                '#00FF00',
-                '#FF0000'
-            ],
-            'circle-opacity': 0.7,
-            'circle-stroke-width': [
-                'case',
-                ['get', 'isStart'],
-                2,
-                0
-            ],
-            'circle-stroke-color': '#FFFFFF'
-        }
-    });
-
-    // Add hover effect for nodes
-    map.on('mouseenter', 'debug-nodes', (e) => {
-        if (e.features.length > 0) {
-            map.getCanvas().style.cursor = 'pointer';
-            
-            new maplibregl.Popup()
-                .setLngLat(e.lngLat)
-                .setHTML(`Node ${e.features[0].properties.index}${e.features[0].properties.isStart ? ' (Start)' : ''}`)
-                .addTo(map);
-        }
-    });
-
-    map.on('mouseleave', 'debug-nodes', () => {
-        map.getCanvas().style.cursor = '';
-    });
-
-    // Add search area visualization
-    const searchArea = turf.circle(
-        [startPoint.lng, startPoint.lat],
-        CONFIG.INITIAL_SEARCH_AREA_RADIUS,
-        { units: 'kilometers' }
-    );
-
-    map.addSource('debug-search-area', {
-        type: 'geojson',
-        data: searchArea
-    });
-
-    map.addLayer({
-        id: 'debug-search-area',
-        type: 'line',
-        source: 'debug-search-area',
-        paint: {
-            'line-color': '#FF0000',
-            'line-width': 2,
-            'line-dasharray': [2, 2]
-        }
-    });
-
-    // Log debug information
-    console.log('Debug visualization stats:', {
-        networkEdges: networkFeatures.length,
-        routes: routeFeatures.length,
-        directionArrows: arrowFeatures.length,
-        nodes: nodeFeatures.length,
-        startPoint: startPoint
-    });
-}
-function visualizeDebugTermination(map, terminationPoints) {
-    // Remove existing layers if any
-    if (map.getLayer('debug-termination')) map.removeLayer('debug-termination');
-    if (map.getSource('debug-termination')) map.removeSource('debug-termination');
-
-    // Remove existing event listeners
-    map.off('click', 'debug-termination');
-    map.off('mouseenter', 'debug-termination');
-    map.off('mouseleave', 'debug-termination');
-
-    const reasonLabels = {
-        'sharp_turn': 'Sharp Turn',
-        'cycle': 'Cycle Detected',
-        'max_distance': 'Maximum Distance Reached',
-        'no_advance': 'No Valid Next Edges',
-        'all_edges_visited': 'All Next Edges Visited'
-    };
-
-    const features = terminationPoints.map(point => ({
-        type: 'Feature',
-        properties: {
-            reason: point.reason,
-            details: point.details
-        },
-        geometry: {
-            type: 'Point',
-            coordinates: point.coords
-        }
-    }));
-
-    // Add the source and layer
-    map.addSource('debug-termination', {
-        type: 'geojson',
-        data: {
-            type: 'FeatureCollection',
-            features: features
-        }
-    });
-
-    map.addLayer({
-        id: 'debug-termination',
-        type: 'circle',
-        source: 'debug-termination',
-        paint: {
-            'circle-radius': 6,
-            'circle-color': [
-                'match',
-                ['get', 'reason'],
-                'sharp_turn', '#ff0000',    // Red
-                'cycle', '#ffff00',         // Yellow
-                'max_distance', '#00ff00',  // Green
-                'no_advance', '#0000ff',    // Blue
-                '#ff00ff'                   // Pink (default)
-            ],
-            'circle-opacity': 0.7,
-            'circle-stroke-width': 1,
-            'circle-stroke-color': '#ffffff'
-        }
-    });
-
-    // Add click handler
-    map.on('click', 'debug-termination', (e) => {
-        if (!e.features.length) return;
-
-        const feature = e.features[0];
-        const reason = feature.properties.reason;
-        const details = feature.properties.details;
-
-        const reasonLabels = {
-            'sharp_turn': 'Sharp Turn',
-            'cycle': 'Cycle Detected',
-            'max_distance': 'Maximum Distance Reached',
-            'no_advance': 'No Valid Next Edges'
-        };
-
-        new maplibregl.Popup()
-            .setLngLat(e.lngLat)
-            .setHTML(`
-                <div style="padding: 10px; font-family: Arial, sans-serif;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">
-                        ${reasonLabels[reason] || reason}
-                    </div>
-                    <div style="color: #666;">
-                        ${details}
-                    </div>
-                </div>
-            `)
-            .addTo(map);
-    });
-
-    // Add hover effects
-    map.on('mouseenter', 'debug-termination', () => {
-        map.getCanvas().style.cursor = 'pointer';
-    });
-
-    map.on('mouseleave', 'debug-termination', () => {
-        map.getCanvas().style.cursor = '';
-    });
-
-    if (DEBUG.enabled) {
-        console.log('Debug visualization added:', {
-            totalPoints: features.length,
-            byReason: features.reduce((acc, f) => {
-                acc[f.properties.reason] = (acc[f.properties.reason] || 0) + 1;
-                return acc;
-            }, {})
-        });
     }
-}
-// =====================
-// Main Function with Debug Support
-// =====================
-
-async function findSignpostDirections(signpostPoint, signpostName) {
-    DEBUG.logConfig();
-    console.log('Starting findSignpostDirections with point:', signpostPoint);
-
-    // Fetch and process features
-    const rawPaths = map.querySourceFeatures('thunderforest-outdoors', { sourceLayer: 'path' });
-    const rawRoads = map.querySourceFeatures('thunderforest-outdoors', { sourceLayer: 'road' });
-
-    if (DEBUG.enabled) {
-        console.log('Raw features found:', {
-            paths: rawPaths.length,
-            roads: rawRoads.length
-        });
-    }
-
-    // Process features
-    let lineFeatures = [...rawPaths, ...rawRoads].map(f => ({
-        type: 'Feature',
-        properties: f.properties || {},
-        geometry: f.geometry || null
-    }));
-
-    // Handle MultiLineString features
-    lineFeatures = lineFeatures.flatMap(f => {
-        if (!f.geometry) return [];
-        if (f.geometry.type === 'LineString') return [f];
-        if (f.geometry.type === 'MultiLineString') {
-            return f.geometry.coordinates.map(coords => ({
-                type: 'Feature',
-                properties: { ...f.properties },
-                geometry: { type: 'LineString', coordinates: coords }
-            }));
-        }
-        return [];
-    });
-
-    // Build network and clean up nodes
-    let network = buildPathNetwork(lineFeatures);
-    network = cleanupNodes(network);  // Added cleanup here
-    DEBUG.logNetwork(network);
-
-    // Find start node
-    const point = turf.point([signpostPoint.lng, signpostPoint.lat]);
-    const startNode = findClosestNode(point, network.nodes);
-    
-    if (startNode === null) {
-        console.warn('No paths/roads found near the signpost.');
-        return { results: [], signpostName };
-    }
-
-    // Build and analyze routes
-    const { routes, debugInfo: routeDebugInfo } = buildRoutesFromSignpost(network, startNode, signpostPoint);
-    
-    if (DEBUG.enabled) {
-        console.log('Route generation complete:', routeDebugInfo);
-        visualizeDebug(network, routes, signpostPoint);
-    }
-
-    // Find POIs along routes
-    const results = findPOIsForRoutes(routes, signpostPoint, 'hiking');
-
-    return {
-        results,
-        signpostName,
-        debugInfo: {
-            network: network.debugInfo,
-            routes: routeDebugInfo,
-            totalPOIs: results.reduce((sum, r) => sum + r.destinations.length, 0)
-        }
-    };
-}
+});
 
 
-// =====================
-// Enhanced POI Detection with Debug Support
-// =====================
-
-const POI_PRIORITIES = {
-    'peak': 1,
-    'saddle': 2,
-    'parking': 3,
-    'shelter': 4,
-    'alpine_hut': 4,
-    'information': 5,  // signposts
-    'spring': 6,
-    'water_point': 6
-};
-
-function findPOIsForRoutes(routes, startPoint, difficulty) {
-    const directionGroups = new Map();
-    const debugInfo = {
-        totalPOIs: 0,
-        poisPerRoute: [],
-        bufferSize: CONFIG.POI_SEARCH_BUFFER,
-        originalRoutes: routes.length,
-        directionsFound: 0,
-        skippedNearbyPOIs: 0
-    };
-
-    // First, group routes by their initial direction
-    routes.forEach((routeCoords) => {
-        const pointIndex = Math.min(10, routeCoords.length - 1);
-        
-        const direction = calculatePathDirection(startPoint, routeCoords);
-        validateDirectionCalculation(startPoint, routeCoords, direction);
-        
-        if (!directionGroups.has(direction)) {
-            directionGroups.set(direction, []);
-            debugInfo.directionsFound++;
-        }
-        directionGroups.get(direction).push(routeCoords);
-    });
-
-    if (DEBUG.enabled) {
-        console.log('Direction groups found:', directionGroups.size);
-        directionGroups.forEach((routes, direction) => {
-            console.log(`${direction}: ${routes.length} routes`);
-        });
-    }
-
-    const results = [];
-    
-    // Create a buffer around the signpost to check for nearby POIs
-    const signpostPoint = turf.point([startPoint.lng, startPoint.lat]);
-    const signpostBuffer = turf.buffer(signpostPoint, CONFIG.MIN_POI_DISTANCE, { units: 'kilometers' });
-    
-    // Process each direction group
-    for (const [direction, directionRoutes] of directionGroups) {
-        const poiMap = new Map();
-        let directionPOIs = 0;
-
-        // Process routes for this direction
-        directionRoutes.forEach((routeCoords) => {
-            const routeLine = turf.lineString(routeCoords);
-            const buffer = turf.buffer(routeLine, CONFIG.POI_SEARCH_BUFFER, { units: 'kilometers' });
-
-            // Query POIs with priorities
-            const regularPois = map.querySourceFeatures('thunderforest-outdoors', {
-                sourceLayer: 'poi-label',
-                filter: ['match',
-                    ['get', 'feature'],
-                    ['peak', 'saddle', 'col', 'shelter', 'alpine_hut', 'spring', 'water_point', 'parking', 'viewpoint'],
-                    true,
-                    false
-                ]
-            });
-
-            const signposts = map.querySourceFeatures('thunderforest-outdoors', {
-                sourceLayer: 'poi-label',
-                filter: ['all',
-                    ['==', ['get', 'feature'], 'information'],
-                    ['==', ['get', 'information'], 'guidepost']
-                ]
-            }).filter(poi => poi.properties.name !== startPoint.name);
-
-            const pois = [...regularPois, ...signposts];
-            
-            pois.forEach(poi => {
-                if (!poi.geometry?.coordinates) return;
-                
-                const poiPoint = turf.point(poi.geometry.coordinates);
-
-                // Skip POIs that are too close to the signpost
-                if (turf.booleanPointInPolygon(poiPoint, signpostBuffer)) {
-                    debugInfo.skippedNearbyPOIs++;
-                    return;
-                }
-                
-                if (!turf.booleanPointInPolygon(poiPoint, buffer)) return;
-
-                const nearestOnPath = turf.nearestPointOnLine(routeLine, poiPoint);
-                const slicedPath = turf.lineSlice(
-                    signpostPoint,
-                    nearestOnPath,
-                    routeLine
-                );
-                const distanceAlongPath = turf.length(slicedPath, { units: 'kilometers' });
-
-                // Skip if distance is less than minimum
-                if (distanceAlongPath < CONFIG.MIN_POI_DISTANCE) {
-                    debugInfo.skippedNearbyPOIs++;
-                    return;
-                }
-
-                const poiName = poi.properties.name || 
-                    `${poi.properties.feature} (${poi.properties.ele}m)`;
-
-                // Update POI only if it's closer than existing one or has higher priority
-                const existingPOI = poiMap.get(poiName);
-                const newPriority = POI_PRIORITIES[poi.properties.feature] || 999;
-                
-                if (!existingPOI || 
-                    newPriority < (POI_PRIORITIES[existingPOI.type] || 999) ||
-                    (newPriority === (POI_PRIORITIES[existingPOI.type] || 999) && distanceAlongPath < existingPOI.distance)) {
-                    
-                    poiMap.set(poiName, {
-                        name: poiName,
-                        type: poi.properties.feature,
-                        priority: newPriority,
-                        distance: distanceAlongPath,
-                        elevation: poi.properties.ele || 0,
-                        time: calculateHikingTime(
-                            distanceAlongPath,
-                            Math.max(0, (poi.properties.ele || 0) - startPoint.ele),
-                            difficulty
-                        )
-                    });
-                    directionPOIs++;
-                }
-            });
-        });
-
-        debugInfo.poisPerRoute.push(directionPOIs);
-        debugInfo.totalPOIs += directionPOIs;
-
-        // Convert POI map to array, sort by priority and distance
-        const destinations = Array.from(poiMap.values())
-            .sort((a, b) => {
-                if (a.priority !== b.priority) {
-                    return a.priority - b.priority;
-                }
-                return a.distance - b.distance;
-            })
-            .slice(0, 3); // Take only top 3 POIs
-
-        if (destinations.length > 0) {
-            results.push({
-                direction,
-                difficulty,
-                destinations
-            });
-        }
-    }
-
-    // Only keep directions that have POIs beyond the minimum distance
-    const finalResults = results
-        .filter(result => result.destinations.length > 0)
-        .sort((a, b) => {
-            const priorityA = Math.min(...a.destinations.map(d => d.priority));
-            const priorityB = Math.min(...b.destinations.map(d => d.priority));
-            if (priorityA !== priorityB) {
-                return priorityA - priorityB;
-            }
-            return Math.min(...a.destinations.map(d => d.distance)) - 
-                   Math.min(...b.destinations.map(d => d.distance));
-        })
-        //.slice(0, 3);  // Remove this line
-
-    if (DEBUG.enabled) {
-        console.log('Results consolidated:', {
-            originalRoutes: debugInfo.originalRoutes,
-            uniqueDirections: directionGroups.size,
-            directionsWithPOIs: debugInfo.directionsFound,
-            finalDirections: finalResults.length,
-            totalUniquePOIs: debugInfo.totalPOIs,
-            skippedNearbyPOIs: debugInfo.skippedNearbyPOIs
-        });
-    }
-
-    return finalResults;
-}
 
 
-// Export debug controls
-window.debugControls = {
-    toggleDebug: () => {
-        DEBUG.enabled = !DEBUG.enabled;
-        console.log('Debug mode:', DEBUG.enabled ? 'enabled' : 'disabled');
-    },
-    setConfig: (key, value) => {
-        if (key in CONFIG) {
-            CONFIG[key] = value;
-            DEBUG.logConfig();
-        } else {
-            console.warn('Unknown configuration key:', key);
-        }
-    },
-    getConfig: () => ({...CONFIG}),
-    visualize: (network, routes, startPoint) => visualizeDebug(network, routes, startPoint)
-};
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
 
 async function initializeThunderforestLayers() {
     try {
@@ -2387,7 +2038,7 @@ async function initializeThunderforestLayers() {
             'source-layer': 'path',
             'filter': distanceFilter,
             'layout': {
-                'visibility': 'none',
+                'visibility': 'visible',
                 'line-join': 'round',
                 'line-cap': 'round'
             },
@@ -2405,7 +2056,7 @@ async function initializeThunderforestLayers() {
             'source-layer': 'path',
             'filter': distanceFilter,
             'layout': {
-                'visibility': 'none',
+                'visibility': 'visible',
                 'line-join': 'round',
                 'line-cap': 'round'
             },
@@ -2428,7 +2079,7 @@ async function initializeThunderforestLayers() {
             'source-layer': 'path',
             'filter': distanceFilter,
             'layout': {
-                'visibility': 'none',
+                'visibility': 'visible',
                 'line-join': 'round',
                 'line-cap': 'round'
             },
@@ -2527,7 +2178,7 @@ async function initializeThunderforestLayers() {
             'source-layer': 'hiking',
             'filter': distanceFilter,
             'layout': {
-                'visibility': 'none',
+                'visibility': 'visible',
                 'line-join': 'round',
                 'line-cap': 'round'
             },
@@ -2589,7 +2240,7 @@ async function initializeThunderforestLayers() {
                         console.warn(`Failed to load icon: ${iconName}`);
                         resolve(); // Resolve anyway to continue loading other icons
                     };
-                    img.src = `/icons/${iconName}.png`; // Adjust path as needed
+                    img.src = `/${iconName}.png`; // Adjust path as needed
                 })
             )
         );
@@ -2726,58 +2377,6 @@ async function initializeThunderforestLayers() {
             }
         });
 
-map.on('click', 'poisth', async (e) => {
-    const f = e.features[0];
-    if (f.properties.feature === 'information' && f.properties.information === 'guidepost') {
-        console.log('Processing signpost:', f.properties);
-
-        const signpostPoint = {
-            lng: e.lngLat.lng,
-            lat: e.lngLat.lat,
-            ele: f.properties.ele || 'N/A',
-            name: f.properties.name || 'Unknown'
-        };
-
-        try {
-            const { results, network, routes } = await findSignpostDirections(signpostPoint, signpostPoint.name);
-
-            if (network && routes) {
-                visualizeDebug(network, routes, signpostPoint);
-            }
-
-            const popupContent = createSignpostPopup(results, signpostPoint.name, signpostPoint.ele);
-            new maplibregl.Popup({
-                closeButton: true,
-                closeOnClick: false
-            })
-                .setLngLat([signpostPoint.lng, signpostPoint.lat])
-                .setHTML(popupContent)
-                .addTo(map);
-
-        } catch (error) {
-            console.error('Error processing signpost:', error);
-            new maplibregl.Popup()
-                .setLngLat([signpostPoint.lng, signpostPoint.lat])
-                .setHTML(`
-                    <div style="padding:10px; font-family: Arial;">
-                        <strong style="color: red;">${signpostPoint.name}</strong><br>
-                        <span style="color: red;">Altitude: ${signpostPoint.ele}m</span><br>
-                        <div style="color: #666;">Error processing this signpost</div>
-                    </div>
-                `)
-                .addTo(map);
-        }
-    }
-});
-
-
-
-
-
-
-
-
-
         map.addLayer({
             'id': 'thunderforest-parking',
             'type': 'fill',
@@ -2799,7 +2398,7 @@ map.on('click', 'poisth', async (e) => {
             'source-layer': 'road',
             'filter': distanceFilter,
             'layout': {
-                'visibility': 'none',
+                'visibility': 'visible',
                 'line-join': 'round',
                 'line-cap': 'round'
             },
