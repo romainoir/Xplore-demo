@@ -11,104 +11,209 @@
     <script src="https://unpkg.com/maplibre-gl@v5.0.0-pre.9/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/maplibre-contour@0.0.5/dist/index.min.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-    <style>
-        body { margin: 0; padding: 0; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
-        .layer-control {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 10px;
-            z-index: 1000;
-            max-height: 90vh;
-            overflow-y: auto;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        .layer-control h3 {
-            margin-top: 0;
-        }
-        .layer-control label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        .layer-control strong {
-            display: block;
-            margin-top: 10px;
-            margin-bottom: 5px;
-        }
-        .loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255, 255, 255, 0.9);
-            padding: 20px;
-            border-radius: 4px;
-            display: none;
-        }
-        .carousel-container {
-            position: relative;
-            width: 100%;
-            margin: 10px 0;
-        }
+<style>
+body { 
+    margin: 0; 
+    padding: 0; 
+}
 
-        .carousel-slide {
-            display: none;
-            position: absolute;
-            width: 100%;
-            z-index: 1;
-            transition: opacity 2.5s ease;
-        }
+#map { 
+    position: absolute; 
+    top: 0; 
+    bottom: 0; 
+    width: 100%; 
+    height: 100%; 
+}
 
-        .carousel-slide.active {
-            display: block;
-            z-index: 2;
-        }
+.layer-control {
+    position: fixed;
+    top: 10px;
+    left: -300px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    z-index: 1000;
+    max-height: 90vh;
+    overflow-y: auto;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    transition: left 0.3s ease-in-out;
+    width: 250px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
 
-        .carousel-slide:not(.active) {
-            opacity: 0;
-        }
+.layer-control.visible {
+    left: 10px;
+}
 
-        .carousel-slide img {
-            width: 100%;
-            height: 200px;
-            object-fit: cover;
-            border-radius: 4px;
-        }
+.layer-control h3 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+}
 
-        .carousel-buttons {
-            position: absolute;
-            bottom: 10px;
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-        }
+.layer-control label {
+    display: block;
+    margin-bottom: 8px;
+    cursor: pointer;
+    padding: 4px 0;
+}
 
-        .carousel-button {
-            background: rgba(255, 255, 255, 0.8);
-            border: none;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            cursor: pointer;
-            font-size: 16px;
-        }
+.layer-control label:hover {
+    background: rgba(0,0,0,0.05);
+}
 
-        .carousel-counter {
-            background: rgba(255, 255, 255, 0.8);
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-        }
-    </style>
-</head>
+.layer-control input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.layer-control strong {
+    display: block;
+    margin-top: 12px;
+    margin-bottom: 8px;
+    color: #444;
+}
+
+.menu-toggle {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 1001;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 10px;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.menu-toggle:hover {
+    background: #f0f0f0;
+}
+
+.menu-icon {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: #333;
+    position: relative;
+    transition: background 0.2s ease-out;
+}
+
+.menu-icon::before,
+.menu-icon::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 2px;
+    background: #333;
+    transition: all 0.2s ease-out;
+}
+
+.menu-icon::before {
+    top: -6px;
+}
+
+.menu-icon::after {
+    bottom: -6px;
+}
+
+.menu-toggle.active .menu-icon {
+    background: transparent;
+}
+
+.menu-toggle.active .menu-icon::before {
+    transform: rotate(45deg);
+    top: 0;
+}
+
+.menu-toggle.active .menu-icon::after {
+    transform: rotate(-45deg);
+    bottom: 0;
+}
+
+.loading {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255, 255, 255, 0.9);
+    padding: 20px;
+    border-radius: 4px;
+    display: none;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.carousel-container {
+    position: relative;
+    width: 100%;
+    margin: 10px 0;
+}
+
+.carousel-slide {
+    display: none;
+    position: absolute;
+    width: 100%;
+    z-index: 1;
+    transition: opacity 2.5s ease;
+}
+
+.carousel-slide.active {
+    display: block;
+    z-index: 2;
+}
+
+.carousel-slide:not(.active) {
+    opacity: 0;
+}
+
+.carousel-slide img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.carousel-buttons {
+    position: absolute;
+    bottom: 10px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
+.carousel-button {
+    background: rgba(255, 255, 255, 0.8);
+    border: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.carousel-counter {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+</style>
+
 <body>
     <div id="map"></div>
+    <button class="menu-toggle" aria-label="Toggle Layer Menu">
+        <span class="menu-icon"></span>
+    </button>
     <div class="layer-control">
         <h3>Layers</h3>
         <label><input type="checkbox" id="orthophotos-checkbox" checked> Orthophotos</label>
@@ -118,10 +223,30 @@
         <label><input type="checkbox" id="buildings-checkbox" checked> 3D Buildings</label>
         <label><input type="checkbox" id="hd-terrain-checkbox"> HD Terrain</label>
         <label><input type="checkbox" id="contours-checkbox"> Contour Lines</label>
+        
+        <div id="sentinel2-controls" style="display: none;">
+            <strong>Sentinel-2 Controls</strong>
+            <label>
+                Opacity: 
+                <input type="range" id="sentinel-opacity" min="0" max="1" step="0.1" value="0.7">
+                <span id="opacity-value">0.7</span>
+            </label>
+            <label>
+                Contrast: 
+                <input type="range" id="sentinel-contrast" min="-1" max="1" step="0.1" value="0.2">
+                <span id="contrast-value">0.2</span>
+            </label>
+            <label>
+                Saturation: 
+                <input type="range" id="sentinel-saturation" min="-1" max="1" step="0.1" value="0.1">
+                <span id="saturation-value">0.1</span>
+            </label>
+        </div>
     </div>
     <div id="loading" class="loading">Loading terrain data...</div>
-    
+</body>
     <script>
+
 // Initialize DEM source first
 const demSource = new mlcontour.DemSource({
     url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
@@ -3484,6 +3609,29 @@ window.addEventListener('unload', () => {
 });
 
 
+// Menu toggle functionality
+const menuToggle = document.querySelector('.menu-toggle');
+let isMenuVisible = false;
+
+menuToggle.addEventListener('click', () => {
+    isMenuVisible = !isMenuVisible;
+    document.querySelector('.layer-control').classList.toggle('visible');
+    menuToggle.classList.toggle('active');
+});
+
+// Close menu when clicking outside
+map.on('click', () => {
+    if (isMenuVisible) {
+        isMenuVisible = false;
+        document.querySelector('.layer-control').classList.remove('visible');
+        menuToggle.classList.remove('active');
+    }
+});
+
+// Prevent map click when clicking on controls
+document.querySelector('.layer-control').addEventListener('click', (e) => {
+    e.stopPropagation();
+});   
 
 // Add Navigation Control
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
