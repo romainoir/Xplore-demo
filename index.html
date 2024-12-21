@@ -2879,7 +2879,7 @@ map.on('load', async () => {
 
 // Icon configuration
 const iconNames = {
-    cabane: './icons/shelter.png',      // or '../images/shelter.png' depending on structure
+    cabane: './icons/shelter.png',
     refuge: './icons/shelter.png',
     gite: './icons/shelter.png',
     pt_eau: './icons/eau.png',
@@ -2888,59 +2888,75 @@ const iconNames = {
     bivouac: './icons/bivouac.png',
     lac: './icons/lago.png'
 };
-img.src = `./images/${iconName}.png`;
-    // Icon Loading Function
-    const loadIcon = (iconName, iconPath) => {
-        console.log(`Attempting to load icon: ${iconName} from path: ${iconPath}`);
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
+
+// Icon Loading Function
+const loadIcon = (iconName, iconPath) => {
+    console.log(`Attempting to load icon: ${iconName} from path: ${iconPath}`);
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            map.addImage(iconName, ctx.getImageData(0, 0, img.width, img.height));
+            resolve();
+        };
+
+        img.onerror = () => {
+            console.warn(`Failed to load icon: ${iconName}`);
+            // Create fallback circle icon
+            const size = 32;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
             
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                map.addImage(iconName, ctx.getImageData(0, 0, img.width, img.height));
-                resolve();
-            };
+            ctx.beginPath();
+            ctx.arc(size/2, size/2, size/3, 0, Math.PI * 2);
+            let fillColor = '#f5a442'; // Default orange
 
-            img.onerror = () => {
-                const size = 32;
-                const canvas = document.createElement('canvas');
-                canvas.width = size;
-                canvas.height = size;
-                const ctx = canvas.getContext('2d');
-                
-                ctx.beginPath();
-                ctx.arc(size/2, size/2, size/3, 0, Math.PI * 2);
-                let fillColor = '#f5a442'; // Default orange
+            switch(iconName) {
+                case 'pt_eau': fillColor = '#4287f5'; break;
+                case 'sommet':
+                case 'pt_passage': fillColor = '#ff4444'; break;
+                case 'refuge':
+                case 'cabane':
+                case 'gite': fillColor = '#42f554'; break;
+                case 'lac': fillColor = '#4682B4'; break;
+                case 'bivouac': fillColor = '#f5a442'; break;
+            }
+            
+            ctx.fillStyle = fillColor;
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            map.addImage(iconName, ctx.getImageData(0, 0, size, size));
+            resolve();
+        };
 
-                switch(iconName) {
-                    case 'pt_eau': fillColor = '#4287f5'; break;
-                    case 'sommet':
-                    case 'pt_passage': fillColor = '#ff4444'; break;
-                    case 'refuge':
-                    case 'cabane':
-                    case 'gite': fillColor = '#42f554'; break;
-                    case 'lac': fillColor = '#4682B4'; break;
-                    case 'bivouac': fillColor = '#f5a442'; break;
-                }
-                
-                ctx.fillStyle = fillColor;
-                ctx.fill();
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                
-                map.addImage(iconName, ctx.getImageData(0, 0, size, size));
-                resolve();
-            };
+        img.src = iconPath;
+    });
+};
 
-        img.src = `./images/${iconName}.png`;
-        });
-    };
+// Usage - load all icons
+const loadAllIcons = async () => {
+    try {
+        await Promise.all(
+            Object.entries(iconNames).map(([iconName, iconPath]) => 
+                loadIcon(iconName, iconPath)
+            )
+        );
+        console.log('All icons loaded successfully');
+    } catch (error) {
+        console.error('Error loading icons:', error);
+    }
+};
 
     // Load all icons
     try {
