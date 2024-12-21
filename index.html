@@ -2878,16 +2878,38 @@ map.on('load', async () => {
     layerControl.appendChild(refugeControl);
 
     // Icon configuration
-    const iconNames = {
-        cabane: '/shelter.png',
-        refuge: '/shelter.png',
-        gite: '/shelter.png',
-        pt_eau: '/eau.png',
-        sommet: '/summit.png',
-        pt_passage: '/summit.png',
-        bivouac: '/bivouac.png',
-        lac: '/lago.png'
-    };
+const iconNames = {
+    cabane: './icons/shelter.png',      // or '../images/shelter.png' depending on structure
+    refuge: './icons/shelter.png',
+    gite: './icons/shelter.png',
+    pt_eau: './icons/eau.png',
+    sommet: './icons/summit.png',
+    pt_passage: './icons/summit.png',
+    bivouac: './icons/bivouac.png',
+    lac: './icons/lago.png'
+};
+And:
+
+javascript
+
+Copy
+img.src = `./images/${iconName}.png`;  // or '../images/${iconName}.png'
+Also, ensure that:
+
+All icon files are actually present in your repository
+The file names match exactly (case-sensitive)
+The paths are correct relative to where your HTML file is located
+You can verify the correct path by:
+
+Opening your GitHub Pages URL
+Opening browser dev tools (F12)
+Going to the Network tab
+Looking for 404 errors on image requests to see the exact paths being requested
+Copy
+Retry
+
+
+Claude can make mistakes. Please double-check responses.
 
     // Icon Loading Function
     const loadIcon = (iconName, iconPath) => {
@@ -2938,7 +2960,7 @@ map.on('load', async () => {
                 resolve();
             };
 
-            img.src = iconPath;
+        img.src = `./images/${iconName}.png`;
         });
     };
 
