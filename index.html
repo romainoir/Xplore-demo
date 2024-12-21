@@ -271,7 +271,7 @@ const map = new maplibregl.Map({
             'terrain-source': {
                 type: 'raster-dem',
                 tiles: ['/terrain_{z}_{x}_{y}.png'],
-                tileSize: 1024,
+                tileSize: 512,
                 maxzoom: 17,
                 encoding: 'mapbox'
             },
@@ -280,7 +280,7 @@ const map = new maplibregl.Map({
                 encoding: 'terrarium',
                 tiles: [demSource.sharedDemProtocolUrl],
                 maxzoom: 14,
-                tileSize: 512
+                tileSize: 256
             },
             'contours': {
                 type: 'vector',
@@ -330,8 +330,8 @@ const map = new maplibregl.Map({
                 tiles: [
                     'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19&Key-Pair-Id=&Signature=&Policy='
                 ],
-                tileSize: 512,
-                maxzoom: 18,
+                tileSize: 256,
+                maxzoom: 16,
                 attribution: '&copy; Data from Geoportail'
             },
             'sentinel2': {
@@ -341,8 +341,8 @@ const map = new maplibregl.Map({
                     `SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&` +
                     `TILED=true&WIDTH=1024&HEIGHT=1024&CRS=EPSG:3857&BBOX={bbox-epsg-3857}`
                 ],
-                tileSize: 1024,
-                maxzoom: 19,
+                tileSize: 256,
+                maxzoom: 16,
                 attribution: '&copy; <a href="https://www.copernicus.eu/en">Copernicus</a>'
             },
             'snowDepth': {
@@ -350,7 +350,7 @@ const map = new maplibregl.Map({
                 tiles: [
                     'https://p20.cosmos-project.ch/BfOlLXvmGpviW0YojaYiRqsT9NHEYdn88fpHZlr_map/gmaps/sd20alps@epsg3857/{z}/{x}/{y}.png'
                 ],
-                tileSize: 512,
+                tileSize: 256,
                 attribution: '&copy; Data from Exolab'
             },
             'tree-dem': {
