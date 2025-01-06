@@ -243,26 +243,34 @@ const map = new maplibregl.Map({
     fadeDuration: 500
 });
 
-// Add zoom event listener for terrain transition
-// In app.js
-map.on('zoom', () => {
-    const zoom = map.getZoom();
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
+const debouncedTerrainUpdate = debounce((zoom) => {
     const currentBearing = map.getBearing();
     const currentCenter = map.getCenter();
     
     if (zoom >= 12) {
         map.setTerrain({ source: 'terrain-high', exaggeration: 1.0 });
-        // Small zoom adjustment to trigger terrain refresh
-        map.setZoom(zoom + 0.00001);
-        map.setCenter(currentCenter);
-        map.setBearing(currentBearing);
     } else {
         map.setTerrain({ source: 'terrain-low', exaggeration: 1.0 });
-        map.setZoom(zoom + 0.00001);
-        map.setCenter(currentCenter);
-        map.setBearing(currentBearing);
     }
+    
+    map.setZoom(zoom + 0.00001);
+    map.setCenter(currentCenter);
+    map.setBearing(currentBearing);
+}, 100);
+
+map.on('zoom', () => {
+    const zoom = map.getZoom();
+    debouncedTerrainUpdate(zoom);
 });
+
 
 // Setup MapLibre protocol and controls
 demSource.setupMaplibre(maplibregl);
