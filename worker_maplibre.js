@@ -231,7 +231,7 @@ function encodeTerrainRGB(elevation) {
 
 // Main processing function
 async function processDEMTile({ zoom, x, y }, capabilities) {
-    const OUTPUT_SIZE = 1024;
+    const OUTPUT_SIZE = 256;
     const tileKey = `${zoom}/${x}/${y}`;
     const demZoom = Math.max(0, zoom + 0);
     

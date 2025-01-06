@@ -49,21 +49,13 @@ const map = new maplibregl.Map({
             position: [100 , 90, 5]
             },
         sources: {
-            'terrain-low': {
-                    type: 'raster-dem',
-                    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-                    tileSize: 256,
-                    maxzoom: 12,
-                    encoding: 'terrarium'
-                },
-                'terrain-high': {
-                    type: 'raster-dem',
-                    tiles: ['/terrain_{z}_{x}_{y}.png'],
-                    tileSize: 512,
-                    minzoom: 12,
-                    maxzoom: 18,
-                    encoding: 'mapbox'
-                },
+            'terrain-source': {
+                type: 'raster-dem',
+                tiles: ['/terrain_{z}_{x}_{y}.png'],
+                tileSize: 256,
+                maxzoom: 17,
+                encoding: 'mapbox',
+            },
             'dem': {
                 type: 'raster-dem',
                 encoding: 'terrarium',
@@ -131,7 +123,7 @@ const map = new maplibregl.Map({
                 tiles: [
                     'https://tile.opentopomap.org/{z}/{x}/{y}.png'
                 ],
-                tileSize: 256,
+                tileSize: 512,
                 maxzoom: 17,
                 attribution: '&copy; OpenTopoMap contributors'
             },
@@ -186,8 +178,6 @@ const map = new maplibregl.Map({
                 }
             },
             layerStyles.baseColor,
-            layerStyles.terrainLow,
-            layerStyles.terrainHigh,
             layerStyles.orthophotosLayer,
             layerStyles.planIGNLayer,
             layerStyles.OpentopoLayer,
@@ -211,7 +201,7 @@ const map = new maplibregl.Map({
             layerStyles.thunderforestLakes
         ],
         terrain: {
-            source: 'terrain-low',
+            source: 'terrain-source',
             exaggeration: 1.0,
 
         },
@@ -238,39 +228,11 @@ const map = new maplibregl.Map({
     hash: true,
     antialias: true,
     cancelPendingTileRequestsWhileZooming: true,
+    minZoom: 10,
     maxZoom: 19,
     maxPitch: 90,
     fadeDuration: 500
 });
-
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
-
-const debouncedTerrainUpdate = debounce((zoom) => {
-    const currentBearing = map.getBearing();
-    const currentCenter = map.getCenter();
-    
-    if (zoom >= 12) {
-        map.setTerrain({ source: 'terrain-high', exaggeration: 1.0 });
-    } else {
-        map.setTerrain({ source: 'terrain-low', exaggeration: 1.0 });
-    }
-    
-    map.setZoom(zoom + 0.00001);
-    map.setCenter(currentCenter);
-    map.setBearing(currentBearing);
-}, 100);
-
-map.on('zoom', () => {
-    const zoom = map.getZoom();
-    debouncedTerrainUpdate(zoom);
-});
-
 
 // Setup MapLibre protocol and controls
 demSource.setupMaplibre(maplibregl);
@@ -287,14 +249,20 @@ map.addControl(new maplibregl.GlobeControl());
 
 // Updated TerrainControl with vertical field of view
 map.addControl(new maplibregl.TerrainControl({
-    source: 'terrain-low', // Change from terrain-source
+    source: 'terrain-source',
     exaggeration: 1.0,
     onToggle: (enabled) => {
         if (enabled) {
             const currentZoom = map.getZoom();
-            const source = currentZoom >= 12 ? 'terrain-high' : 'terrain-low';
-            map.setTerrain({ source: source, exaggeration: 1.0 });
+            const currentCenter = map.getCenter();
+            const currentBearing = map.getBearing();
+            
+            map.setTerrain({ source: 'terrain-source', exaggeration: 1.0 });
             map.setVerticalFieldOfView(45);
+            
+            map.setZoom(currentZoom + 0.00001);
+            map.setCenter(currentCenter);
+            map.setBearing(currentBearing);
             
             if (map.getLayer('hillshade-layer')) {
                 map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
@@ -406,8 +374,9 @@ const throttledFetchAll = throttle(() => {
     fetchWikimediaPhotos();
 }, THROTTLE_DELAY);
 
-// Update event handlers
+
 map.on('load', async () => {
+
     // Delay to ensure everything loads properly
     setTimeout(async () => {
         try {
@@ -439,7 +408,7 @@ map.on('load', async () => {
                 loadingScreen.classList.add('fade-out');
             }
         }
-    }, 5000);
+    }, 3000);
 
     // Update click handler for signposts with new subscription model
     map.on('click', async (e) => {
@@ -478,6 +447,7 @@ window.addEventListener('unload', () => {
     workerPool.terminate();
     osmCache.clear();
 });
+
 
 export { map };
 

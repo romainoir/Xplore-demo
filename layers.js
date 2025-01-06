@@ -10,57 +10,6 @@ const layerStyles = {
             'background-opacity': 1.0,
         },
     },
-    terrainLow: {
-        id: 'terrain-low',
-        type: 'hillshade',
-        source: 'terrain-low',
-        layout: { visibility: 'visible' },
-        paint: {
-            'hillshade-exaggeration': 0.45,
-            'hillshade-illumination-direction': 315,
-            'hillshade-illumination-anchor': 'viewport',
-            'hillshade-shadow-color': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                11, '#000000',
-                12, 'rgba(0,0,0,0)'
-            ],
-            'hillshade-highlight-color': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                11, '#ffffff',
-                12, 'rgba(255,255,255,0)'
-            ]
-        }
-    },
-
-    terrainHigh: {
-        id: 'terrain-high',
-        type: 'hillshade',
-        source: 'terrain-high',
-        layout: { visibility: 'visible' },
-        paint: {
-            'hillshade-exaggeration': 0.45,
-            'hillshade-illumination-direction': 315,
-            'hillshade-illumination-anchor': 'viewport',
-            'hillshade-shadow-color': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                11, 'rgba(0,0,0,0)',
-                12, '#000000'
-            ],
-            'hillshade-highlight-color': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                11, 'rgba(255,255,255,0)',
-                12, '#ffffff'
-            ]
-        }
-    },
     sentinel2Layer: {
         id: 'sentinel2-layer',
         type: 'raster',
@@ -161,7 +110,7 @@ const layerStyles = {
     hillshadeLayer: {
         id: 'hillshade-layer',
         type: 'hillshade',
-        source: 'terrain-low',
+        source: 'terrain-source',
         layout: { visibility: 'visible' },
         paint: {
             'hillshade-exaggeration': 0.3,
