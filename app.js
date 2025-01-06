@@ -10,7 +10,7 @@ import { WorkerPool } from './worker_pool.js';
 const demSource = new mlcontour.DemSource({
     url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
     encoding: "terrarium",
-    maxzoom: 14,
+    maxzoom: 18,
     worker: true
 });
 
@@ -33,23 +33,37 @@ function throttle(func, limit) {
 // Initialize MapLibre Map
 const map = new maplibregl.Map({
     container: 'map',
+    canvasContextAttributes: {
+        antialias: true,
+        contextType: 'webgl2',
+        preserveDrawingBuffer: true
+    },
     style: {
         version: 8,
+        projection: {type: 'globe'},
         glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         light: {
             anchor: 'viewport',
             color: '#ffffff',
-            intensity: 0.2,
-            position: [100.2, 90, 5]
-        },
-        sources: {
-            'terrain-source': {
-                type: 'raster-dem',
-                tiles: ['/terrain_{z}_{x}_{y}.png'],
-                tileSize: 512,
-                maxzoom: 17,
-                encoding: 'mapbox'
+            intensity: 0.3,
+            position: [100 , 90, 5]
             },
+        sources: {
+            'terrain-low': {
+                    type: 'raster-dem',
+                    tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+                    tileSize: 256,
+                    maxzoom: 12,
+                    encoding: 'terrarium'
+                },
+                'terrain-high': {
+                    type: 'raster-dem',
+                    tiles: ['/terrain_{z}_{x}_{y}.png'],
+                    tileSize: 512,
+                    minzoom: 12,
+                    maxzoom: 18,
+                    encoding: 'mapbox'
+                },
             'dem': {
                 type: 'raster-dem',
                 encoding: 'terrarium',
@@ -73,7 +87,7 @@ const map = new maplibregl.Map({
                         contourLayer: 'contours'
                     })
                 ],
-                maxzoom: 19
+                maxzoom: 18
             },
             'buildings': {
                 type: 'vector',
@@ -87,10 +101,10 @@ const map = new maplibregl.Map({
             'orthophotos': {
                 type: 'raster',
                 tiles: [
-                    'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=HR.ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
+                    'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
                 ],
                 tileSize: 256,
-                minzoom: 6,
+                minzoom: 0,
                 maxzoom: 19,
                 attribution: '© IGN/Geoportail'
             },
@@ -100,7 +114,7 @@ const map = new maplibregl.Map({
                     'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
                 ],
                 tileSize: 256,
-                maxzoom: 16,
+                maxzoom: 17,
                 attribution: '© Data from Geoportail'
             },
             'heatmap': {
@@ -108,8 +122,8 @@ const map = new maplibregl.Map({
                 tiles: [
                     'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19&Key-Pair-Id=&Signature=&Policy='
                 ],
-                tileSize: 256,
-                maxzoom: 16,
+                tileSize: 512,
+                maxzoom: 17,
                 attribution: '© Data from Strava'
             },
             'OpenTopo': {
@@ -118,16 +132,16 @@ const map = new maplibregl.Map({
                     'https://tile.opentopomap.org/{z}/{x}/{y}.png'
                 ],
                 tileSize: 256,
-                maxzoom: 16,
+                maxzoom: 17,
                 attribution: '&copy; OpenTopoMap contributors'
             },
             'sentinel2': {
                 type: 'raster',
                 tiles: [
-                    'https://sh.dataspace.copernicus.eu/ogc/wms/db2d70bd-05c6-4ec3-9b31-f31a651821d5?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&TILED=true&WIDTH=256&HEIGHT=256&CRS=EPSG:3857&BBOX={bbox-epsg-3857}'
+                    'https://sh.dataspace.copernicus.eu/ogc/wms/db2d70bd-05c6-4ec3-9b31-f31a651821d5?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&TILED=true&WIDTH=1024&HEIGHT=1024&CRS=EPSG:3857&BBOX={bbox-epsg-3857}'
+                    //'https://services.sentinel-hub.com/ogc/wms/20049cf0-16c4-4306-8fc0-9f8315705a5b?service=WMS&request=GetMap&layers=1_TRUE_COLOR&styles=&format=image/jpeg&transparent=true&version=1.1.1&height=256&width=256&srs=EPSG:3857&bbox={bbox-epsg-3857}&time=2024-01-01/2024-01-06'
                 ],
                 tileSize: 1024,
-                maxzoom: 18,
                 attribution: '© Copernicus'
             },
             'Slope': {
@@ -164,7 +178,16 @@ const map = new maplibregl.Map({
             }
         },
         layers: [
+            {
+                id: 'background',
+                type: 'background',
+                paint: {
+                    'background-color': '#000'  // Black background for space
+                }
+            },
             layerStyles.baseColor,
+            layerStyles.terrainLow,
+            layerStyles.terrainHigh,
             layerStyles.orthophotosLayer,
             layerStyles.planIGNLayer,
             layerStyles.OpentopoLayer,
@@ -188,25 +211,154 @@ const map = new maplibregl.Map({
             layerStyles.thunderforestLakes
         ],
         terrain: {
-            source: 'terrain-source',
-            exaggeration: 1.0
+            source: 'terrain-low',
+            exaggeration: 1.0,
+
+        },
+        sky: {
+            "sky-color": "#87CEEB",
+            "sky-horizon-blend": 0.5,
+            "horizon-color": "#ffffff",
+            "horizon-fog-blend": 0.5,
+            "fog-color": "#888888",
+            "fog-ground-blend": 0.5,
+            "atmosphere-blend": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                0, 1,
+                5, 1,
+                7, 0
+            ]
         }
     },
     center: [5.7245, 45.1885],
     zoom: 14,
-    pitch: 70,
+    pitch: 45,
     hash: true,
     antialias: true,
     cancelPendingTileRequestsWhileZooming: true,
-    maxZoom: 20,
-    maxPitch: 70,
-    fadeDuration: 2000
+    maxZoom: 19,
+    maxPitch: 90,
+    fadeDuration: 500
+});
+
+// Add zoom event listener for terrain transition
+// In app.js
+map.on('zoom', () => {
+    const zoom = map.getZoom();
+    const currentBearing = map.getBearing();
+    const currentCenter = map.getCenter();
+    
+    if (zoom >= 12) {
+        map.setTerrain({ source: 'terrain-high', exaggeration: 1.0 });
+        // Small zoom adjustment to trigger terrain refresh
+        map.setZoom(zoom + 0.00001);
+        map.setCenter(currentCenter);
+        map.setBearing(currentBearing);
+    } else {
+        map.setTerrain({ source: 'terrain-low', exaggeration: 1.0 });
+        map.setZoom(zoom + 0.00001);
+        map.setCenter(currentCenter);
+        map.setBearing(currentBearing);
+    }
 });
 
 // Setup MapLibre protocol and controls
 demSource.setupMaplibre(maplibregl);
-map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
-map.addControl(new maplibregl.TerrainControl({ source: 'terrainSource', exaggeration: 0.1 }));
+
+// Add Navigation Control
+map.addControl(new maplibregl.NavigationControl({ 
+    visualizePitch: true,
+    showZoom: true,
+    showCompass: true
+}));
+
+// Add Globe Control
+map.addControl(new maplibregl.GlobeControl());
+
+// Updated TerrainControl with vertical field of view
+map.addControl(new maplibregl.TerrainControl({
+    source: 'terrain-low', // Change from terrain-source
+    exaggeration: 1.0,
+    onToggle: (enabled) => {
+        if (enabled) {
+            const currentZoom = map.getZoom();
+            const source = currentZoom >= 12 ? 'terrain-high' : 'terrain-low';
+            map.setTerrain({ source: source, exaggeration: 1.0 });
+            map.setVerticalFieldOfView(45);
+            
+            if (map.getLayer('hillshade-layer')) {
+                map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
+            }
+        } else {
+            map.setTerrain(null);
+            map.setVerticalFieldOfView(60);
+            if (map.getLayer('hillshade-layer')) {
+                map.setLayoutProperty('hillshade-layer', 'visibility', 'none');
+            }
+        }
+    }
+}));
+
+// Add Scale Control
+map.addControl(new maplibregl.ScaleControl());
+
+// Add Geolocation Control
+map.addControl(new maplibregl.GeolocateControl({
+    positionOptions: {
+        enableHighAccuracy: true
+    },
+    trackUserLocation: true,
+    showUserHeading: true
+}));
+
+// Add Geocoder Control with Nominatim
+const geocoderApi = {
+    forwardGeocode: async (config) => {
+        const features = [];
+        try {
+            const request = `https://nominatim.openstreetmap.org/search?q=${
+                config.query
+            }&format=geojson&polygon_geojson=1&addressdetails=1`;
+            const response = await fetch(request);
+            const geojson = await response.json();
+            for (const feature of geojson.features) {
+                const center = [
+                    feature.bbox[0] + (feature.bbox[2] - feature.bbox[0]) / 2,
+                    feature.bbox[1] + (feature.bbox[3] - feature.bbox[1]) / 2
+                ];
+                const point = {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: center
+                    },
+                    place_name: feature.properties.display_name,
+                    properties: feature.properties,
+                    text: feature.properties.display_name,
+                    place_type: ['place'],
+                    center
+                };
+                features.push(point);
+            }
+        } catch (e) {
+            console.error(`Failed to forwardGeocode with error: ${e}`);
+        }
+        return {
+            features
+        };
+    }
+};
+
+map.addControl(
+    new MaplibreGeocoder(geocoderApi, {
+        maplibregl,
+        marker: true,
+        showResultsWhileTyping: true,
+        position: 'top-left'
+    })
+);
 
 // Initialize worker pool
 const workerPool = new WorkerPool(map);
@@ -216,30 +368,110 @@ let currentTerrain = 'terrain-source';
 
 function handleTerrainToggle(source) {
     if (currentTerrain === source) return;
-    
     currentTerrain = source;
-    
     if (map.getLayer('hillshade-layer')) {
         map.removeLayer('hillshade-layer');
     }
-
     map.setTerrain({
         source: source,
         exaggeration: 1.0
     });
-
     map.addLayer({
         id: 'hillshade-layer',
         type: 'hillshade',
         source: source,
         layout: { visibility: 'visible' },
         paint: {
-            'hillshade-exaggeration': 0.15,
-            'hillshade-illumination-anchor': 'map',
-            'hillshade-illumination-direction': 280
+            'hillshade-exaggeration': 0.45,
+            'hillshade-illumination-direction': 315,
+            'hillshade-illumination-anchor': 'viewport',
+            'hillshade-shadow-color': '#000000',
+            'hillshade-highlight-color': '#ffffff',
+            'hillshade-accent-color': '#000000'
         }
-    }, layerStyles.sentinel2Layer.id);  // Insert hillshade before sentinel2 layer
+    }, layerStyles.sentinel2Layer.id);
 }
+
+// Update event listeners to use new subscription model
+const throttledFetchAll = throttle(() => {
+    fetchPointsOfInterest(map);
+    fetchWikimediaPhotos();
+}, THROTTLE_DELAY);
+
+// Update event handlers
+map.on('load', async () => {
+    // Delay to ensure everything loads properly
+    setTimeout(async () => {
+        try {
+            addLayersToMap();
+            setupLayerControls();
+            setupMenuToggle();
+            setupWikimediaEventListeners();
+            setupRefugesEventListeners();
+
+            // Set up separate event listeners instead of chaining
+            map.on('moveend', throttledFetchAll);
+            
+            await initializeThunderforestLayers();
+            console.log('Thunderforest initialization successful');
+
+            // Remove loading screen with fade effect
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 500);
+            }
+
+        } catch (error) {
+            console.error('Initialization error:', error);
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('fade-out');
+            }
+        }
+    }, 5000);
+
+    // Update click handler for signposts with new subscription model
+    map.on('click', async (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['poisth'] });
+        if (features.length > 0 &&
+            features[0].properties.feature === 'guidepost' &&
+            features[0].properties.information === 'guidepost') {
+
+            const [lon, lat] = features[0].geometry.coordinates;
+            try {
+                const query = getOverpassQuery(lat, lon);
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'data=' + encodeURIComponent(query)
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const data = await response.json();
+                osmCache.set(features[0].properties.id, data);
+                processOsmData(data, lon, lat, features[0]);
+            } catch (error) {
+                console.error('Error querying OSM:', error);
+                new maplibregl.Popup()
+                    .setLngLat([lon, lat])
+                    .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
+                    .addTo(map);
+            }
+        }
+    });
+});
+
+// Clean up subscriptions on unload
+window.addEventListener('unload', () => {
+    workerPool.terminate();
+    osmCache.clear();
+});
+
+export { map };
 
 function setupLayerControls() {
     const layerControl = document.querySelector('.layer-control');
@@ -424,95 +656,3 @@ function setupMenuToggle() {
         e.stopPropagation();
     });
 }
-
-// Initialize map event handlers
-map.on('load', async () => {
-    // Delay to ensure everything loads properly
-    setTimeout(async () => {
-        try {
-            addLayersToMap();
-            setupLayerControls();
-            setupMenuToggle();
-            setupWikimediaEventListeners();
-            setupRefugesEventListeners();
-
-            // Initialize sentinel2 controls
-            const sentinel2Controls = document.getElementById('sentinel2-controls');
-            if (sentinel2Controls) {
-                sentinel2Controls.style.display = 'none';
-                const opacitySlider = document.getElementById('sentinel-opacity');
-                if (opacitySlider) {
-                    opacitySlider.value = 0;
-                    document.getElementById('opacity-value').textContent = '0.0';
-                }
-            }
-
-            await initializeThunderforestLayers();
-            console.log('Thunderforest initialization successful');
-
-            // Remove loading screen with fade effect
-            const loadingScreen = document.getElementById('loading-screen');
-            if (loadingScreen) {
-                loadingScreen.classList.add('fade-out');
-                setTimeout(() => {
-                    loadingScreen.style.display = 'none';
-                }, 500); // Match the CSS transition duration
-            }
-
-        } catch (error) {
-            console.error('Initialization error:', error);
-            // Still remove loading screen even if there's an error
-            const loadingScreen = document.getElementById('loading-screen');
-            if (loadingScreen) {
-                loadingScreen.classList.add('fade-out');
-            }
-        }
-    }, 6000); // 6 second delay as requested
-
-    // Set up event handlers
-    const throttledFetchAll = throttle(() => {
-        fetchPointsOfInterest(map);
-        fetchWikimediaPhotos();
-    }, THROTTLE_DELAY);
-
-    map.on('moveend', throttledFetchAll);
-
-    // Handle signpost clicks
-    map.on('click', async (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['poisth'] });
-        if (features.length > 0 &&
-            features[0].properties.feature === 'guidepost' &&
-            features[0].properties.information === 'guidepost') {
-
-            const [lon, lat] = features[0].geometry.coordinates;
-            try {
-                const query = getOverpassQuery(lat, lon);
-                const response = await fetch('https://overpass-api.de/api/interpreter', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'data=' + encodeURIComponent(query)
-                });
-
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-                const data = await response.json();
-                osmCache.set(features[0].properties.id, data);
-                processOsmData(data, lon, lat, features[0]);
-            } catch (error) {
-                console.error('Error querying OSM:', error);
-                new maplibregl.Popup()
-                    .setLngLat([lon, lat])
-                    .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
-                    .addTo(map);
-            }
-        }
-    });
-});
-
-// Clean up on unload
-window.addEventListener('unload', () => {
-    workerPool.terminate();
-    osmCache.clear();
-});
-
-export { map };

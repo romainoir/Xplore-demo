@@ -6,8 +6,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="apple-touch-icon" href="/icon.png">
-    <title>MapLibre Terrain Visualization</title>
-    <link href="https://unpkg.com/maplibre-gl@v5.0.0-pre.10/dist/maplibre-gl.css" rel="stylesheet" />
+    <title>Xplore</title>
+    <link href="https://unpkg.com/maplibre-gl@v5.0.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@v5.0.0/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/maplibre-contour@0.0.5/dist/index.min.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" />
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -28,32 +33,32 @@
         <div class="tab-content active" id="basemaps">
             <div class="layer-options">
                 <button class="layer-option active" data-layer="orthophotos-layer">
-                  <img src="ortho.png" alt="IGN Ortho" class="basemap-icon">IGN Ortho
+                  <img src="/icons/ortho.png" alt="IGN Ortho" class="basemap-icon">IGN Ortho
                 </button>
                 <button class="layer-option" data-layer="planIGN-layer">
-                  <img src="plan.png" alt="IGN Plan" class="basemap-icon">IGN Plan
+                  <img src="/icons/plan.png" alt="IGN Plan" class="basemap-icon">IGN Plan
                 </button>
                  <button class="layer-option" data-layer="hillshade-layer">
-                  <img src="topo.png" alt="Open Topo" class="basemap-icon">hillshade
+                  <img src="/icons/hillshade.png" alt="Open Topo" class="basemap-icon">hillshade
                 </button>
                  <button class="layer-option" data-layer="Opentopo-layer">
-                  <img src="topo.png" alt="Open Topo" class="basemap-icon">Open Topo
+                  <img src="/icons/topo.png" alt="Open Topo" class="basemap-icon">Open Topo
                 </button>
             </div>
         </div>
         <div class="tab-content" id="overlays">
             <div class="layer-options">
                 <button class="layer-option" data-layer="Snow-layer">
-                    <img src="snow.png" alt="Snow cover" class="overlay-icon">Snow cover
+                    <img src="/icons/snow.png" alt="Snow cover" class="overlay-icon">Snow cover
                 </button>
                 <button class="layer-option" data-layer="heatmap-layer">
-                    <img src="heatmap.png" alt="Heatmap" class="overlay-icon">Heatmap
+                    <img src="/icons/heatmap.png" alt="Heatmap" class="overlay-icon">Heatmap
                 </button>
                 <button class="layer-option" data-layer="Slope-layer">
-                    <img src="slope.png" alt="Slope" class="overlay-icon">Slope
+                    <img src="/icons/slope.png" alt="Slope" class="overlay-icon">Slope
                 </button>
                 <button class="layer-option" data-layer="sentinel2-layer">
-                    <img src="sentinel.png" alt="Sentinel-2" class="overlay-icon">Sentinel-2
+                    <img src="/icons/sentinel.png" alt="Sentinel-2" class="overlay-icon">Sentinel-2
                 </button>
             </div>
             <div id="sentinel2-controls" style="display: none;">
@@ -78,47 +83,44 @@
        <div class="tab-content" id="features">
             <div class="layer-options">
                   <button class="layer-toggle-button" data-layer="3d-buildings">
-                      <img src="building.png" alt="3D Buildings" class="layer-toggle-icon">
+                      <img src="/icons/building.png" alt="3D Buildings" class="layer-toggle-icon">
                       3D Buildings
                   </button>
                   <button class="layer-toggle-button" data-layer="contours">
-                      <img src="contours.png" alt="Contour Lines" class="layer-toggle-icon">
+                      <img src="/icons/contours.png" alt="Contour Lines" class="layer-toggle-icon">
                       Contour Lines
                    </button>
                    <button class="layer-toggle-button" data-layer="refuges-layer">
-                      <img src="shelter.png" alt="Refuges.info" class="layer-toggle-icon">
+                      <img src="/icons/shelter.png" alt="Refuges.info" class="layer-toggle-icon">
                       Refuges.info
                   </button>
                    <button class="layer-toggle-button" data-layer="wikimedia-photos">
-                       <img src="wikimedia.png" alt="Wikimedia Photos" class="layer-toggle-icon">
+                       <img src="/icons/wikimedia.png" alt="Wikimedia Photos" class="layer-toggle-icon">
                        Wikimedia Photos
                    </button>
                   <button class="layer-toggle-button" data-layer="paths">
-                      <img src="paths.png" alt="Thunderforest Paths" class="layer-toggle-icon">
+                      <img src="/icons/paths.png" alt="Thunderforest Paths" class="layer-toggle-icon">
                       Thunderforest Paths
                   </button>
                   <button class="layer-toggle-button" data-layer="thunderforest-parking">
-                    <img src="parking.png" alt="Parking Areas" class="layer-toggle-icon">
+                    <img src="/icons/parking.png" alt="Parking Areas" class="layer-toggle-icon">
                     Parking Areas
                   </button>
                    <button class="layer-toggle-button" data-layer="thunderforest-lakes">
-                       <img src="lago.png" alt="Lakes" class="layer-toggle-icon">
+                       <img src="/icons/lago.png" alt="Lakes" class="layer-toggle-icon">
                        Lakes
                   </button>
                   <button class="layer-toggle-button" data-layer="thunderforest-roads">
-                      <img src="roads.png" alt="Roads" class="layer-toggle-icon">
+                      <img src="/icons/roads.png" alt="Roads" class="layer-toggle-icon">
                       Roads
                    </button>
                   <button class="layer-toggle-button" data-layer="poisth">
-                    <img src="information.png" alt="Points of Interest (thunderforest)" class="layer-toggle-icon">
+                    <img src="/icons/information.png" alt="Points of Interest (thunderforest)" class="layer-toggle-icon">
                     Points of Interest (thunderforest)
                    </button>
             </div>
         </div>
     </div>
-    <script src="https://unpkg.com/maplibre-gl@v5.0.0-pre.10/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/maplibre-contour@0.0.5/dist/index.min.js"></script>
-    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -10,16 +10,69 @@ const layerStyles = {
             'background-opacity': 1.0,
         },
     },
+    terrainLow: {
+        id: 'terrain-low',
+        type: 'hillshade',
+        source: 'terrain-low',
+        layout: { visibility: 'visible' },
+        paint: {
+            'hillshade-exaggeration': 0.45,
+            'hillshade-illumination-direction': 315,
+            'hillshade-illumination-anchor': 'viewport',
+            'hillshade-shadow-color': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11, '#000000',
+                12, 'rgba(0,0,0,0)'
+            ],
+            'hillshade-highlight-color': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11, '#ffffff',
+                12, 'rgba(255,255,255,0)'
+            ]
+        }
+    },
+
+    terrainHigh: {
+        id: 'terrain-high',
+        type: 'hillshade',
+        source: 'terrain-high',
+        layout: { visibility: 'visible' },
+        paint: {
+            'hillshade-exaggeration': 0.45,
+            'hillshade-illumination-direction': 315,
+            'hillshade-illumination-anchor': 'viewport',
+            'hillshade-shadow-color': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11, 'rgba(0,0,0,0)',
+                12, '#000000'
+            ],
+            'hillshade-highlight-color': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11, 'rgba(255,255,255,0)',
+                12, '#ffffff'
+            ]
+        }
+    },
     sentinel2Layer: {
         id: 'sentinel2-layer',
         type: 'raster',
         source: 'sentinel2',
-        layout: { visibility: 'visible' },
+        layout: { visibility: 'none' },//will need to handle thta, temporary solution due to lack of credit
         paint: {
             'raster-opacity': 0,
             'raster-contrast': 0.2,
             'raster-saturation': 0.1,
-            'raster-fade-duration': 0
+            'raster-resampling': 'linear',
+            'raster-fade-duration': 200
+
         }
     },
     contours: {
@@ -84,7 +137,7 @@ const layerStyles = {
         type: 'raster',
         source: 'OpenTopo',
         minzoom: 0,
-        maxzoom: 18,
+        maxzoom: 19,
         layout: { visibility: 'none' },
     },
     SlopeLayer: {
@@ -102,18 +155,18 @@ const layerStyles = {
         type: 'raster',
         source: 'heatmap',
         minzoom: 6,
-        maxzoom: 16,
+        maxzoom: 18,
         layout: { visibility: 'none' },
     },
     hillshadeLayer: {
         id: 'hillshade-layer',
         type: 'hillshade',
-        source: 'terrain-source',
+        source: 'terrain-low',
         layout: { visibility: 'visible' },
         paint: {
-            'hillshade-exaggeration': 0.35,
+            'hillshade-exaggeration': 0.3,
             'hillshade-illumination-anchor': 'map',
-            'hillshade-illumination-direction': 280,
+            'hillshade-illumination-direction': 80,
         },
     },
     buildings3D: {
