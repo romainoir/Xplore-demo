@@ -359,3 +359,224 @@ body {
         transform: scale(1);
     }
 }
+
+/* Directions toggle button */
+.directions-toggle {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    z-index: 1001;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.directions-toggle:hover {
+    background: #f0f0f0;
+}
+
+.directions-toggle.active {
+    background: #e6e6e6;
+}
+
+.directions-icon {
+    width: 24px;
+    height: 24px;
+}
+
+/* Directions control panel */
+.directions-control {
+    position: fixed;
+    bottom: 60px;
+    left: -335px;
+    width: 300px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 15px;
+    z-index: 1000;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    transition: left 0.3s ease-in-out;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.directions-control.visible {
+    left: 10px;
+}
+
+/* Transport modes section */
+.transport-modes {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    background: #f5f5f5;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.transport-mode {
+    background: transparent;
+    border: 2px solid transparent;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.transport-mode.active {
+    background: white;
+    border-color: #007bff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.mode-icon {
+    width: 24px;
+    height: 24px;
+}
+
+/* Actions section */
+.directions-actions {
+    display: flex;
+    justify-content: space-around;
+    margin: 15px 0;
+    padding: 10px;
+    border-top: 1px solid #eee;
+    border-bottom: 1px solid #eee;
+}
+
+.direction-action {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.direction-action:hover {
+    background: #f5f5f5;
+}
+
+.action-icon {
+    width: 20px;
+    height: 20px;
+}
+
+/* Stats section */
+.route-stats {
+    background: white;
+    padding: 15px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-top: 15px;
+}
+
+.route-stats .distance,
+.route-stats .elevation {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.elevation-chart {
+    height: 100px;
+    margin-top: 10px;
+    background: #f5f5f5;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.profile-segment {
+    padding: 8px;
+    margin: 4px 0;
+    color: white;
+    border-radius: 4px;
+    list-style: none;
+}
+
+
+.elevation-chart-container {
+    height: 200px;
+    margin-top: 20px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    position: relative;
+}
+
+.elevation-bars {
+    display: flex;
+    height: 100%;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.elevation-bar-container {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    position: relative;
+}
+
+.elevation-bar {
+    background: #f8b40b;
+    width: 100%;
+    transition: height 0.3s ease;
+}
+
+.distance-marker {
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: rotate(-45deg) translateX(-50%);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.elevation-labels {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.max-elevation, .min-elevation {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+.route-summary {
+    padding: 15px;
+    background: white;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.route-summary h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #333;
+}

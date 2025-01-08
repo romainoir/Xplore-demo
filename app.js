@@ -5,6 +5,8 @@ import initializeThunderforestLayers from './thunderforest.js';
 import { processOsmData, getOverpassQuery } from './signpost.js';
 import { layerStyles, addLayersToMap } from './layers.js';
 import { WorkerPool } from './worker_pool.js';
+import { DirectionsManager } from './directions.js';
+
 
 // Initialize DEM source
 const demSource = new mlcontour.DemSource({
@@ -30,218 +32,229 @@ function throttle(func, limit) {
     }
 }
 
+let directionsManager;
+
 // Initialize MapLibre Map
 const map = new maplibregl.Map({
-    container: 'map',
-    canvasContextAttributes: {
-        antialias: true,
-        contextType: 'webgl2',
-        preserveDrawingBuffer: true
-    },
-    style: {
-        version: 8,
-        projection: {type: 'globe'},
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        light: {
-            anchor: 'viewport',
-            color: '#ffffff',
-            intensity: 0.3,
-            position: [100 , 90, 5]
-            },
-        sources: {
-            'terrain-source': {
-                type: 'raster-dem',
-                tiles: ['/terrain_{z}_{x}_{y}.png'],
-                tileSize: 256,
-                maxzoom: 17,
-                encoding: 'mapbox',
-            },
-            'dem': {
-                type: 'raster-dem',
-                encoding: 'terrarium',
-                tiles: [demSource.sharedDemProtocolUrl],
-                maxzoom: 14,
-                tileSize: 256
-            },
-            'contours': {
-                type: 'vector',
-                tiles: [
-                    demSource.contourProtocolUrl({
-                        thresholds: {
-                            11: [50, 200],
-                            12: [50, 200],
-                            13: [25, 100],
-                            14: [25, 100],
-                            15: [10, 50]
-                        },
-                        elevationKey: 'ele',
-                        levelKey: 'level',
-                        contourLayer: 'contours'
-                    })
-                ],
-                maxzoom: 18
-            },
-            'buildings': {
-                type: 'vector',
-                tiles: ['https://tiles.stadiamaps.com/data/openmaptiles/{z}/{x}/{y}.pbf'],
-                maxzoom: 14
-            },
-            'refuges': {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            },
-            'orthophotos': {
-                type: 'raster',
-                tiles: [
-                    'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
-                ],
-                tileSize: 256,
-                minzoom: 0,
-                maxzoom: 19,
-                attribution: '© IGN/Geoportail'
-            },
-            'planIGN': {
-                type: 'raster',
-                tiles: [
-                    'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
-                ],
-                tileSize: 256,
-                maxzoom: 17,
-                attribution: '© Data from Geoportail'
-            },
-            'heatmap': {
-                type: 'raster',
-                tiles: [
-                    'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19&Key-Pair-Id=&Signature=&Policy='
-                ],
-                tileSize: 512,
-                maxzoom: 17,
-                attribution: '© Data from Strava'
-            },
-            'OpenTopo': {
-                type: 'raster',
-                tiles: [
-                    'https://tile.opentopomap.org/{z}/{x}/{y}.png'
-                ],
-                tileSize: 512,
-                maxzoom: 17,
-                attribution: '&copy; OpenTopoMap contributors'
-            },
-            'sentinel2': {
-                type: 'raster',
-                tiles: [
-                    'https://sh.dataspace.copernicus.eu/ogc/wms/db2d70bd-05c6-4ec3-9b31-f31a651821d5?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&TILED=true&WIDTH=1024&HEIGHT=1024&CRS=EPSG:3857&BBOX={bbox-epsg-3857}'
-                    //'https://services.sentinel-hub.com/ogc/wms/20049cf0-16c4-4306-8fc0-9f8315705a5b?service=WMS&request=GetMap&layers=1_TRUE_COLOR&styles=&format=image/jpeg&transparent=true&version=1.1.1&height=256&width=256&srs=EPSG:3857&bbox={bbox-epsg-3857}&time=2024-01-01/2024-01-06'
-                ],
-                tileSize: 1024,
-                attribution: '© Copernicus'
-            },
-            'Slope': {
-                type: 'raster',
-                tiles: [
-                    'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
-                ],
-                tileSize: 256,
-                attribution: '© Data from Geoportail'
-            },
-            'snowDepth': {
-                type: 'raster',
-                tiles: [
-                    'https://p20.cosmos-project.ch/BfOlLXvmGpviW0YojaYiRqsT9NHEYdn88fpHZlr_map/gmaps/sd20alps@epsg3857/{z}/{x}/{y}.png'
-                ],
-                tileSize: 256,
-                attribution: '© Data from Exolab'
-            },
-            'wikimedia': {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] },
-                cluster: false,
-                clusterMaxZoom: 14,
-                clusterRadius: 30
-            },
-            'thunderforest-outdoors': {
-                type: 'vector',
-                tiles: [
-                    'https://a.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
-                    'https://b.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
-                    'https://c.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25'
-                ],
-                maxzoom: 14
-            }
-        },
-        layers: [
-            {
-                id: 'background',
-                type: 'background',
-                paint: {
-                    'background-color': '#000'  // Black background for space
-                }
-            },
-            layerStyles.baseColor,
-            layerStyles.orthophotosLayer,
-            layerStyles.planIGNLayer,
-            layerStyles.OpentopoLayer,
-            layerStyles.sentinel2Layer,
-            layerStyles.contours,
-            layerStyles.contourText,
-            layerStyles.hillshadeLayer,
-            layerStyles.snowLayer,
-            layerStyles.SlopeLayer,
-            layerStyles.buildings3D,
-            layerStyles.refugesLayer,
-            layerStyles.wikimediaPhotos,
-            layerStyles.pathsHitArea,
-            layerStyles.pathsOutline,
-            layerStyles.paths,
-            layerStyles.pathDifficultyMarkers,
-            layerStyles.hikingRoutes,
-            layerStyles.poisth,
-            layerStyles.thunderforestRoads,
-            layerStyles.thunderforestParking,
-            layerStyles.thunderforestLakes
-        ],
-        terrain: {
-            source: 'terrain-source',
-            exaggeration: 1.0,
-
-        },
-        sky: {
-            "sky-color": "#87CEEB",
-            "sky-horizon-blend": 0.5,
-            "horizon-color": "#ffffff",
-            "horizon-fog-blend": 0.5,
-            "fog-color": "#888888",
-            "fog-ground-blend": 0.5,
-            "atmosphere-blend": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                0, 1,
-                5, 1,
-                7, 0
-            ]
-        }
-    },
-    center: [5.7245, 45.1885],
-    zoom: 14,
-    pitch: 45,
-    hash: true,
+  container: 'map',
+  canvasContextAttributes: {
     antialias: true,
-    cancelPendingTileRequestsWhileZooming: true,
-    minZoom: 10,
-    maxZoom: 19,
-    maxPitch: 90,
-    fadeDuration: 500
+    contextType: 'webgl2',
+    preserveDrawingBuffer: true
+  },
+  style: {
+    version: 8,
+    glyphs: 'https://data.geopf.fr/annexes/ressources/vectorTiles/fonts/{fontstack}/{range}.pbf', // Set the glyphs URL here
+    sprite: "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/sprite/PlanIgn",
+    projection: { type: 'globe' },
+    light: {
+      anchor: 'viewport',
+      color: '#ffffff',
+      intensity: 0.3,
+      position: [100, 90, 5]
+    },
+    sources: {
+      'terrain-source': {
+        type: 'raster-dem',
+        tiles: ['/terrain_{z}_{x}_{y}.png'],
+        tileSize: 256,
+        maxzoom: 17,
+        encoding: 'mapbox'
+      },
+      'dem': {
+        type: 'raster-dem',
+        encoding: 'terrarium',
+        tiles: [demSource.sharedDemProtocolUrl],
+        maxzoom: 14,
+        tileSize: 256
+      },
+      'contours': {
+        type: 'vector',
+        tiles: [
+          demSource.contourProtocolUrl({
+            thresholds: {
+              11: [50, 200],
+              12: [50, 200],
+              13: [25, 100],
+              14: [25, 100],
+              15: [10, 50]
+            },
+            elevationKey: 'ele',
+            levelKey: 'level',
+            contourLayer: 'contours'
+          })
+        ],
+        maxzoom: 18
+      },
+      'buildings': {
+        type: 'vector',
+        tiles: ['https://tiles.stadiamaps.com/data/openmaptiles/{z}/{x}/{y}.pbf'],
+        maxzoom: 14
+      },
+      'refuges': {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      },
+      'orthophotos': {
+        type: 'raster',
+        tiles: [
+          'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
+        ],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+        attribution: '© IGN/Geoportail'
+      },
+      /*'planIGN': {
+        type: 'raster',
+        tiles: [
+          'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
+        ],
+        tileSize: 256,
+        maxzoom: 17,
+        attribution: '© Data from Geoportail'
+      },*/
+      'heatmap': {
+        type: 'raster',
+        tiles: [
+          'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19&Key-Pair-Id=&Signature=&Policy='
+        ],
+        tileSize: 512,
+        maxzoom: 17,
+        attribution: '© Data from Strava'
+      },
+      'OpenTopo': {
+        type: 'raster',
+        tiles: [
+          'https://tile.opentopomap.org/{z}/{x}/{y}.png'
+        ],
+        tileSize: 512,
+        maxzoom: 17,
+        attribution: '© OpenTopoMap contributors'
+      },
+      'sentinel2': {
+        type: 'raster',
+        tiles: [
+          'https://sh.dataspace.copernicus.eu/ogc/wms/db2d70bd-05c6-4ec3-9b31-f31a651821d5?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&TILED=true&WIDTH=1024&HEIGHT=1024&CRS=EPSG:3857&BBOX={bbox-epsg-3857}'
+          //'https://services.sentinel-hub.com/ogc/wms/20049cf0-16c4-4306-8fc0-9f8315705a5b?service=WMS&request=GetMap&layers=1_TRUE_COLOR&styles=&format=image/jpeg&transparent=true&version=1.1.1&height=256&width=256&srs=EPSG:3857&bbox={bbox-epsg-3857}&time=2024-01-01/2024-01-06'
+        ],
+        tileSize: 1024,
+        attribution: '© Copernicus'
+      },
+      'Slope': {
+        type: 'raster',
+        tiles: [
+          'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
+        ],
+        tileSize: 256,
+        attribution: '© Data from Geoportail'
+      },
+        'snowDepth': {
+            type: 'raster',
+            tiles: [
+                'https://p20.cosmos-project.ch/BfOlLXvmGpviW0YojaYiRqsT9NHEYdn88fpHZlr_map/gmaps/sd20alps@epsg3857/{z}/{x}/{y}.png'
+            ],
+            tileSize: 256,
+            attribution: '© Data from Exolab'
+        },
+        'wikimedia': {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+            cluster: false,
+            clusterMaxZoom: 14,
+            clusterRadius: 30
+      },
+      'thunderforest-outdoors': {
+        type: 'vector',
+        tiles: [
+          'https://a.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
+          'https://b.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
+          'https://c.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25'
+        ],
+        maxzoom: 14
+      },
+        'plan-ign-vector': { // Add vector planIGN source
+            type: 'vector',
+            tiles: ['https://data.geopf.fr/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf'],
+             maxzoom: 17,
+            attribution: '© Data from Geoportail'
+          },
+    },
+    layers: [
+      {
+        id: 'background',
+        type: 'background',
+        paint: {
+          'background-color': '#000'  // Black background for space
+        }
+      },
+      layerStyles.baseColor,
+      layerStyles.orthophotosLayer,
+      layerStyles.OpentopoLayer,
+      layerStyles.sentinel2Layer,
+      layerStyles.contours,
+      layerStyles.contourText,
+      layerStyles.hillshadeLayer,
+      layerStyles.snowLayer,
+      layerStyles.SlopeLayer,
+      layerStyles.buildings3D,
+      layerStyles.refugesLayer,
+      layerStyles.wikimediaPhotos,
+      layerStyles.pathsHitArea,
+      layerStyles.pathsOutline,
+      layerStyles.paths,
+      layerStyles.pathDifficultyMarkers,
+      layerStyles.hikingRoutes,
+      layerStyles.poisth,
+      layerStyles.thunderforestRoads,
+      layerStyles.thunderforestParking,
+      layerStyles.thunderforestLakes,
+    ],
+    terrain: {
+      source: 'terrain-source',
+      exaggeration: 1.0
+        
+    },
+    sky: {
+      "sky-color": "#87CEEB",
+      "sky-horizon-blend": 0.5,
+      "horizon-color": "#ffffff",
+      "horizon-fog-blend": 0.5,
+      "fog-color": "#888888",
+      "fog-ground-blend": 0.5,
+      "atmosphere-blend": [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        0, 1,
+        5, 1,
+        7, 0
+      ]
+    }
+  },
+  center: [5.7245, 45.1885],
+  zoom: 14,
+  pitch: 45,
+  hash: true,
+  antialias: true,
+  cancelPendingTileRequestsWhileZooming: true,
+  minZoom: 10,
+  maxZoom: 19,
+  maxPitch: 90,
+  fadeDuration: 500
 });
+
+// Initialize directions variable
+let directions;
 
 // Setup MapLibre protocol and controls
 demSource.setupMaplibre(maplibregl);
 
 // Add Navigation Control
 map.addControl(new maplibregl.NavigationControl({ 
-    visualizePitch: true,
-    showZoom: true,
-    showCompass: true
+  visualizePitch: true,
+  showZoom: true,
+  showCompass: true
 }));
 
 // Add Globe Control
@@ -374,9 +387,82 @@ const throttledFetchAll = throttle(() => {
     fetchWikimediaPhotos();
 }, THROTTLE_DELAY);
 
+let planIGNLayers = [];
+
+async function loadPlanIGNLayers() {
+  try {
+      console.log('Attempting to load PLAN IGN layers.');
+    const response = await fetch(
+      'https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/standard.json'
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch standard.json: ${response.statusText}`);
+    }
+    const styleJson = await response.json();
+    planIGNLayers = styleJson.layers
+      .filter(layer => layer.source === 'plan_ign')
+    .map(layer => ({
+            ...layer,
+          source: 'plan-ign-vector'
+        }));
+    planIGNLayers.forEach(layer => {
+        try {
+            map.addLayer(layer);
+              console.log(`Layer "${layer.id}" loaded.`);
+        } catch (error) {
+             console.error(`Error adding layer "${layer.id}":`, error);
+        }
+    });
+    
+     // Add the hillshade layer after the IGN plan layers
+        if (map.getLayer('hillshade-layer')) {
+            map.removeLayer('hillshade-layer');
+        }
+        map.addLayer(layerStyles.hillshadeLayer);
+       console.log('hillshade layer loaded after PLAN IGN layers')
+
+    console.log('IGN layers loaded successfully.');
+  } catch (error) {
+    console.error('Error loading IGN layers:', error);
+  }
+}
+
+
+function removePlanIGNLayers() {
+  if(planIGNLayers && planIGNLayers.length > 0) {
+    planIGNLayers.forEach(layer => {
+      if(map.getLayer(layer.id)) {
+        map.removeLayer(layer.id);
+         console.log(`Layer "${layer.id}" removed.`);
+      }
+    });
+    planIGNLayers = [];
+      console.log('IGN layers removed.');
+  }
+}
+
 
 map.on('load', async () => {
 
+// Get all required UI elements
+const directionsToggle = document.querySelector('.directions-toggle');
+const directionsControl = document.querySelector('.directions-control');
+const transportModes = document.querySelectorAll('.transport-mode');
+const swapButton = document.getElementById('swap-points');
+const clearButton = document.getElementById('clear-route');
+const routeStats = document.getElementById('route-stats');
+const elevationChart = document.getElementById('elevation-chart');
+
+// Initialize the directions manager
+const directionsManager = new DirectionsManager(map, [
+    directionsToggle,
+    directionsControl,
+    transportModes,
+    swapButton,
+    clearButton,
+    routeStats,
+    elevationChart
+]);
     // Delay to ensure everything loads properly
     setTimeout(async () => {
         try {
@@ -469,13 +555,20 @@ function setupLayerControls() {
         });
     });
 
-    function updateBasemapVisibility(selectedId = null) {
+      function updateBasemapVisibility(selectedId = null) {
         const basemaps = ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'];
         basemaps.forEach(id => {
             map.setLayoutProperty(id, 'visibility', 'none');
         });
         if (selectedId) {
             map.setLayoutProperty(selectedId, 'visibility', 'visible');
+             if (selectedId === 'planIGN-layer') {
+                loadPlanIGNLayers()
+              } else {
+                  removePlanIGNLayers();
+            }
+        } else {
+           removePlanIGNLayers();
         }
     }
 

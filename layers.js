@@ -1,6 +1,8 @@
 // layers.js
 import { map } from './app.js';
 
+const fontFamily = ['Source Sans Pro Regular', 'Noto Sans Regular'];
+
 const layerStyles = {
     baseColor: {
         id: 'baseColor',
@@ -74,12 +76,17 @@ const layerStyles = {
         layout: { visibility: 'visible' },
     },
     planIGNLayer: {
-        id: 'planIGN-layer',
-        type: 'raster',
-        source: 'planIGN',
-        minzoom: 0,
-        maxzoom: 18,
-        layout: { visibility: 'none' },
+        'id': 'planIGN-layer',
+        'type': 'fill',
+        'source': 'plan-ign-vector', // Corrected source here
+        'source-layer': 'default',
+        'layout': {
+            'visibility': 'none'
+        },
+         'paint': {
+                'fill-color': '#FFFFFF',
+                'fill-opacity': 0
+        }
     },
     OpentopoLayer: {
         id: 'Opentopo-layer',
@@ -590,14 +597,14 @@ const layerStyles = {
 // Function to add layers to the map
 export function addLayersToMap() {
     for (const key in layerStyles) {
-        if (key !== 'thunderforestLakes' && 
-            key !== 'thunderforestParking' && 
-            key !== 'thunderforestRoads' && 
-            key !== 'poisth' && 
-            key !== 'hikingRoutes' && 
-            key !== 'pathDifficultyMarkers' && 
-            key !== 'paths' && 
-            key !== 'pathsOutline' && 
+        if (key !== 'thunderforestLakes' &&
+            key !== 'thunderforestParking' &&
+            key !== 'thunderforestRoads' &&
+            key !== 'poisth' &&
+            key !== 'hikingRoutes' &&
+            key !== 'pathDifficultyMarkers' &&
+            key !== 'paths' &&
+            key !== 'pathsOutline' &&
             key !== 'pathsHitArea') {
             map.addLayer(layerStyles[key]);
         }

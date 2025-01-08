@@ -13,6 +13,7 @@
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" />
+    <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-directions@0.7.0/dist/maplibre-gl-directions.css" />
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -20,8 +21,14 @@
         <img src="logo.png" alt="Logo" class="loading-logo">
     </div>
     <div id="map"></div>
+
+    <!-- Layer menu toggle -->
     <button class="menu-toggle" aria-label="Toggle Layer Menu">
         <span class="menu-icon"></span>
+    </button>
+    <!-- Direction menu toggle -->
+    <button class="directions-toggle" aria-label="Toggle Directions Menu">
+        <img src="directions.png" alt="Directions" class="directions-icon">
     </button>
     <div class="layer-control">
         <div class="tab-buttons">
@@ -29,7 +36,6 @@
             <button class="tab-button" data-tab="overlays">Overlays</button>
             <button class="tab-button" data-tab="features">Features</button>
         </div>
-
         <div class="tab-content active" id="basemaps">
             <div class="layer-options">
                 <button class="layer-option active" data-layer="orthophotos-layer">
@@ -80,7 +86,7 @@
                 </label>
             </div>
         </div>
-       <div class="tab-content" id="features">
+        <div class="tab-content" id="features">
             <div class="layer-options">
                   <button class="layer-toggle-button" data-layer="3d-buildings">
                       <img src="building.png" alt="3D Buildings" class="layer-toggle-icon">
@@ -120,7 +126,47 @@
                    </button>
             </div>
         </div>
+    <!-- New separate directions menu -->
+    <div class="directions-control">
+        <div class="transport-modes">
+            <button class="transport-mode active" data-mode="foot-hiking">
+                <img src="walk.png" alt="Hiking"class="mode-icon">
+            </button>
+            <button class="transport-mode" data-mode="cycling-regular">
+                <img src="bike.png" alt="Cycling"class="mode-icon">
+            </button>
+            <button class="transport-mode" data-mode="driving-car">
+                <img src="car.png" alt="Driving"class="mode-icon">
+            </button>
+            <button class="transport-mode" data-mode="line">
+                <img src="line.png" alt="Straight line" class="mode-icon">
+            </button>
+        </div>
+        <div class="directions-actions">
+            <button class="direction-action" id="swap-points">
+                <img src="swap.png" alt="Swap points" class="action-icon">
+                <span>Swap</span>
+            </button>
+            <button class="direction-action" id="remove-last">
+                <img src="undo.png" alt="Remove last" class="action-icon">
+                <span>Undo</span>
+            </button>
+            <button class="direction-action" id="redo-point">
+                <img src="redo.png" alt="Redo" class="action-icon">
+                <span>Redo</span>
+            </button>  <!-- Added closing tag -->
+            <button class="direction-action" id="clear-route">
+                <img src="clear.png" alt="Clear all" class="action-icon">
+                <span>Clear</span>
+            </button>
+        </div>
+        <div id="route-stats" class="route-stats">
+            <div class="distance">Distance: <span>0</span> km</div>
+            <div class="elevation">Elevation gain: <span>0</span> m</div>
+            <div id="elevation-chart" class="elevation-chart"></div>
+        </div>
     </div>
+    <ul id="profile-display"></ul>
     <script type="module" src="app.js"></script>
 </body>
 </html>
