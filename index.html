@@ -66,6 +66,15 @@
                 <button class="layer-option" data-layer="sentinel2-layer">
                     <img src="sentinel.png" alt="Sentinel-2" class="overlay-icon">Sentinel-2
                 </button>
+                 <button class="layer-option" data-layer="normal-layer">
+                  <img src="normalmap.png" alt="normal-layer" class="overlay-icon">normalmap
+                </button>
+                 <button class="layer-option" data-layer="slope-layer">
+                    <img src="slopemap.png" alt="slope-layer" class="overlay-icon">slopemap
+                 </button>
+                  <button class="layer-option" data-layer="aspect-layer">
+                    <img src="aspect.png" alt="aspect-layer" class="overlay-icon">aspect-layer
+                   </button>
             </div>
             <div id="sentinel2-controls" style="display: none;">
                 <strong>Sentinel-2 Controls</strong>
@@ -126,44 +135,45 @@
                    </button>
             </div>
         </div>
-    <!-- New separate directions menu -->
-    <div class="directions-control">
-        <div class="transport-modes">
-            <button class="transport-mode active" data-mode="foot-hiking">
-                <img src="walk.png" alt="Hiking"class="mode-icon">
-            </button>
-            <button class="transport-mode" data-mode="cycling-regular">
-                <img src="bike.png" alt="Cycling"class="mode-icon">
-            </button>
-            <button class="transport-mode" data-mode="driving-car">
-                <img src="car.png" alt="Driving"class="mode-icon">
-            </button>
-            <button class="transport-mode" data-mode="line">
-                <img src="line.png" alt="Straight line" class="mode-icon">
-            </button>
-        </div>
-        <div class="directions-actions">
-            <button class="direction-action" id="swap-points">
-                <img src="swap.png" alt="Swap points" class="action-icon">
-                <span>Swap</span>
-            </button>
-            <button class="direction-action" id="remove-last">
-                <img src="undo.png" alt="Remove last" class="action-icon">
-                <span>Undo</span>
-            </button>
-            <button class="direction-action" id="redo-point">
-                <img src="redo.png" alt="Redo" class="action-icon">
-                <span>Redo</span>
-            </button>  <!-- Added closing tag -->
-            <button class="direction-action" id="clear-route">
-                <img src="clear.png" alt="Clear all" class="action-icon">
-                <span>Clear</span>
-            </button>
-        </div>
-        <div id="route-stats" class="route-stats">
-            <div class="distance">Distance: <span>0</span> km</div>
-            <div class="elevation">Elevation gain: <span>0</span> m</div>
-            <div id="elevation-chart" class="elevation-chart"></div>
+        <!-- New separate directions menu -->
+        <div class="directions-control">
+          <div class="transport-modes">
+                <button class="transport-mode active" data-mode="foot-hiking">
+                    <img src="walk.png" alt="Hiking"class="mode-icon">
+                </button>
+                <button class="transport-mode" data-mode="cycling-regular">
+                    <img src="bike.png" alt="Cycling"class="mode-icon">
+                </button>
+                 <button class="transport-mode" data-mode="driving-car">
+                    <img src="car.png" alt="Driving"class="mode-icon">
+                </button>
+                <button class="transport-mode" data-mode="line">
+                    <img src="line.png" alt="Straight line" class="mode-icon">
+                </button>
+            </div>
+            <div class="directions-actions">
+                <button class="direction-action" id="swap-points">
+                    <img src="swap.png" alt="Swap points" class="action-icon">
+                    <span>Swap</span>
+                </button>
+                 <button class="direction-action" id="remove-last">
+                    <img src="undo.png" alt="Remove last" class="action-icon">
+                    <span>Undo</span>
+                </button>
+                <button class="direction-action" id="redo-point">
+                    <img src="redo.png" alt="Redo" class="action-icon">
+                    <span>Redo</span>
+                </button>  <!-- Added closing tag -->
+                <button class="direction-action" id="clear-route">
+                    <img src="clear.png" alt="Clear all" class="action-icon">
+                    <span>Clear</span>
+                </button>
+            </div>
+            <div id="route-stats" class="route-stats">
+                <div class="distance">Distance: <span>0</span> km</div>
+                <div class="elevation">Elevation gain: <span>0</span> m</div>
+                 <div id="elevation-chart" class="elevation-chart"></div>
+           </div>
         </div>
     </div>
     <ul id="profile-display"></ul>
