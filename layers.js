@@ -1,8 +1,6 @@
 // layers.js
 import { map } from './app.js';
 
-const fontFamily = ['Source Sans Pro Regular', 'Noto Sans Regular'];
-
 const layerStyles = {
     baseColor: {
         id: 'baseColor',
@@ -22,7 +20,7 @@ const layerStyles = {
             'raster-contrast': 0.2,
             'raster-saturation': 0.1,
             'raster-resampling': 'linear',
-            'raster-fade-duration': 200
+            'raster-fade-duration': 2000
 
         }
     },
@@ -51,7 +49,6 @@ const layerStyles = {
             'text-anchor': 'center',
             'text-size': 10,
             'text-field': ['concat', ['number-format', ['get', 'ele'], {}], 'm'],
-            'text-font': ['Noto Sans Regular'],
         },
         paint: {
             'text-halo-color': 'white',
@@ -64,8 +61,12 @@ const layerStyles = {
         type: 'raster',
         source: 'snowDepth',
         minzoom: 0,
-        maxzoom: 20,
+        maxzoom: 19,
         layout: { visibility: 'none' },
+        paint: {
+            'raster-resampling': 'linear',
+            'raster-fade-duration': 2000
+        }
     },
     orthophotosLayer: {
         id: 'orthophotos-layer',
@@ -78,7 +79,7 @@ const layerStyles = {
     planIGNLayer: {
         'id': 'planIGN-layer',
         'type': 'fill',
-        'source': 'plan-ign-vector', // Corrected source here
+        'source': 'plan-ign-vector',
         'source-layer': 'default',
         'layout': {
             'visibility': 'none'
@@ -90,34 +91,58 @@ const layerStyles = {
     },
     OpentopoLayer: {
         id: 'Opentopo-layer',
-        type: 'raster',
-        source: 'OpenTopo',
-        minzoom: 0,
-        maxzoom: 19,
-        layout: { visibility: 'none' },
+        type: 'background',  // This will be a placeholder - actual layers loaded dynamically
+        layout: { visibility: 'none' }
     },
+    NormalLayer: {
+       id: 'normal-layer',
+       type: 'raster',
+        source: 'custom-normal',
+        paint: {
+         'raster-opacity': 0
+       },
+      tileSize: 256
+   },
+    SlopeDEMLayer: {
+        id: 'slope-layer',
+        type: 'raster',
+        source: 'custom-slope',
+        paint: {
+           'raster-opacity': 0
+        },
+          tileSize: 256
+   },
+   AspectSlopeLayer :{
+       id: 'aspect-layer',
+       type: 'raster',
+       source: 'custom-aspect',
+       paint: {
+           'raster-opacity': 0
+        },
+         tileSize: 256
+  },
     SlopeLayer: {
         id: 'Slope-layer',
         type: 'raster',
         source: 'Slope',
         minzoom: 0,
-        maxzoom: 16,
+        maxzoom: 19,
         layout: { visibility: 'none' },
         paint: {
-            'raster-opacity': 0.8},
+            'raster-opacity': 0.7},
     },
     HeatmapLayer: {
         id: 'heatmap-layer',
         type: 'raster',
         source: 'heatmap',
-        minzoom: 6,
-        maxzoom: 18,
+        minzoom: 10,
+        maxzoom: 19,
         layout: { visibility: 'none' },
     },
     hillshadeLayer: {
         id: 'hillshade-layer',
         type: 'hillshade',
-        source: 'terrain-source',
+        source: 'custom-dem',
         layout: { visibility: 'visible' },
         paint: {
             'hillshade-exaggeration': 0.3,
@@ -130,6 +155,7 @@ const layerStyles = {
         source: 'buildings',
         'source-layer': 'building',
         type: 'fill-extrusion',
+        layout: { visibility: 'none' },
         minzoom: 14,
         filter: ['!=', ['get', 'hide_3d'], true],
         paint: {
@@ -162,6 +188,7 @@ const layerStyles = {
     type: 'symbol',
     source: 'refuges',
     layout: {
+       visibility: 'none',
       'icon-image': [
         'case',
         ['has', 'photoId'],
@@ -200,7 +227,6 @@ const layerStyles = {
       'icon-allow-overlap': true,
       'icon-anchor': 'bottom',
       'text-field': ['get', 'nom'],
-      'text-font': ['Noto Sans Regular'],
       'text-offset': [0, 0.5],
       'text-anchor': 'top',
       'text-size': 12,
@@ -217,6 +243,7 @@ const layerStyles = {
     id: 'wikimedia-photos',
     type: 'circle',
     source: 'wikimedia',
+    layout: { visibility: 'none' },
     filter: ['!', ['has', 'point_count']],
     paint: {
       'circle-color': '#4287f5',
@@ -343,7 +370,6 @@ const layerStyles = {
                 ''
             ],
             'text-size': 12,
-            'text-font': ['Noto Sans Regular'],
             'text-allow-overlap': false,
             'text-ignore-placement': false,
             'text-padding': 2
@@ -455,7 +481,6 @@ const layerStyles = {
                 '',  // No text for matched features
                 ['get', 'name']  // Show text for everything else
             ],
-            'text-font': ['Noto Sans Regular'],
             'text-size': 12,
             'text-offset': [0, 1],
             'text-anchor': 'top'
