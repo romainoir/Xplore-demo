@@ -344,27 +344,56 @@ function setupLayerControls() {
             const isActive = e.currentTarget.classList.contains('active');
             
             e.currentTarget.classList.toggle('active');
+            
+            // Handle different layer groups
+            switch (layerId) {
+                case 'paths':
+                    ['paths', 'paths-hit-area', 'paths-outline', 'path-difficulty-markers'].forEach(pathLayer => {
+                        map.setLayoutProperty(pathLayer, 'visibility', isActive ? 'none' : 'visible');
+                    });
+                    break;
+                    
+                case 'thunderforest':
+                    ['thunderforest-parking', 'thunderforest-roads', 'thunderforest-lakes'].forEach(tfLayer => {
+                        map.setLayoutProperty(tfLayer, 'visibility', isActive ? 'none' : 'visible');
+                    });
+                    break;
+                    
+                case 'refuges-layer':
+                    const newVisibility = isActive ? 'none' : 'visible';
+                    map.setLayoutProperty('refuges-layer', 'visibility', newVisibility);
+                    
+                    // Clear data if hiding layer
+                    if (newVisibility === 'none' && map.getSource('refuges')) {
+                        map.getSource('refuges').setData({
+                            type: 'FeatureCollection',
+                            features: []
+                        });
+                    }
+                    // Fetch data if showing layer
+                    else if (newVisibility === 'visible') {
+                        fetchPointsOfInterest();
+                    }
+                    break;
 
-            // Toggle specific layer groups
-            if (layerId === 'paths') {
-                ['paths', 'paths-hit-area', 'paths-outline', 'path-difficulty-markers'].forEach(pathLayer => {
-                    map.setLayoutProperty(pathLayer, 'visibility', isActive ? 'none' : 'visible');
-                });
-            } else if (layerId === 'thunderforest') {
-                ['thunderforest-parking', 'thunderforest-roads', 'thunderforest-lakes'].forEach(tfLayer => {
-                    map.setLayoutProperty(tfLayer, 'visibility', isActive ? 'none' : 'visible');
-                });
-            } else if (layerId === 'refuges') {
-                map.setLayoutProperty('refuges', 'visibility', isActive ? 'none' : 'visible');
-            } else if (layerId === 'wikimedia') {
-                map.setLayoutProperty('wikimedia', 'visibility', isActive ? 'none' : 'visible');
-            } else {
-                map.setLayoutProperty(layerId, 'visibility', isActive ? 'none' : 'visible');
+                case 'contours':
+                    ['contours', 'contour-text'].forEach(contourLayer => {
+                        map.setLayoutProperty(contourLayer, 'visibility', isActive ? 'none' : 'visible');
+                    });
+                    break;
+
+                case '3d-buildings':
+                    map.setLayoutProperty('buildings-3d', 'visibility', isActive ? 'none' : 'visible');
+                    break;
+
+                default:
+                    map.setLayoutProperty(layerId, 'visibility', isActive ? 'none' : 'visible');
+                    break;
             }
         });
     });
 
-    // Layer option handlers
+    // Layer option handlers (for basemaps and overlays)
     layerOptions.forEach(option => {
         option.addEventListener('click', (e) => {
             const layerId = e.currentTarget.dataset.layer;
@@ -399,8 +428,8 @@ function setupLayerControls() {
                 const isActive = e.currentTarget.classList.contains('active');
                 e.currentTarget.classList.toggle('active');
 
+                // Handle terrain analysis layers
                 if (['normal-layer', 'slope-layer', 'aspect-layer'].includes(layerId)) {
-                    // Handle terrain analysis layers using opacity
                     const newOpacity = isActive ? 0 : 1;
                     map.setPaintProperty(layerId, 'raster-opacity', newOpacity);
                     
@@ -415,7 +444,7 @@ function setupLayerControls() {
                         });
                     }
                 }
-                // Special handling for Sentinel-2
+                // Handle Sentinel-2
                 else if (layerId === 'sentinel2-layer') {
                     map.setLayoutProperty('sentinel2-layer', 'visibility', isActive ? 'none' : 'visible');
                     const sentinel2Controls = document.getElementById('sentinel2-controls');
@@ -423,22 +452,8 @@ function setupLayerControls() {
                         sentinel2Controls.style.display = isActive ? 'none' : 'block';
                     }
                 }
-                // Handle other regular raster layers with visibility
+                // Handle regular raster layers
                 else if (['Snow-layer', 'heatmap-layer', 'Slope-layer'].includes(layerId)) {
-                    map.setLayoutProperty(layerId, 'visibility', isActive ? 'none' : 'visible');
-                }
-                // Handle contours
-                else if (layerId === 'contours') {
-                    ['contours', 'contour-text'].forEach(contourLayer => {
-                        map.setLayoutProperty(contourLayer, 'visibility', isActive ? 'none' : 'visible');
-                    });
-                }
-                // Handle buildings
-                else if (layerId === 'buildings') {
-                    map.setLayoutProperty('buildings-3d', 'visibility', isActive ? 'none' : 'visible');
-                }
-                // For any other layers, fallback to visibility toggle
-                else {
                     map.setLayoutProperty(layerId, 'visibility', isActive ? 'none' : 'visible');
                 }
             }

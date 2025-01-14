@@ -4,9 +4,10 @@ import { map } from './app.js';
 const photoCache = new Map();
 const processedFeatures = new Set();
 const failedRequests = new Set();
+let isRefugesEnabled = false;
 
 class RequestLimiter {
-    constructor(maxRequests = 20,timeWindow = 1000) {
+    constructor(maxRequests = 20, timeWindow = 1000) {
         this.requests = [];
         this.maxRequests = maxRequests;
         this.timeWindow = timeWindow;
@@ -27,6 +28,13 @@ class RequestLimiter {
 }
 
 const limiter = new RequestLimiter(3, 1000);
+
+// Helper function to check if refuges should be fetched
+function shouldFetchRefuges(map) {
+    if (!map.getLayer('refuges-layer')) return false;
+    const visibility = map.getLayoutProperty('refuges-layer', 'visibility');
+    return visibility === 'visible';
+}
 
 // Utility Functions
 function getDistanceFromLatLonInM(lat1, lon1, lat2, lon2) {
@@ -80,7 +88,6 @@ function calculateOptimizedBbox(bounds, center, currentZoom) {
 }
 
 async function fetchWithRetry(url, retries = 3) {
-    // Skip if this URL has failed before
     if (failedRequests.has(url)) {
         throw new Error('URL previously failed');
     }
@@ -93,7 +100,6 @@ async function fetchWithRetry(url, retries = 3) {
             const response = await fetch(proxyUrl);
             if (response.ok) return response;
             
-            // If we get a 400, try a different proxy service
             if (response.status === 400) {
                 await limiter.checkLimit();
                 const corsAnywhereUrl = `https://cors-anywhere.herokuapp.com/${url}`;
@@ -101,7 +107,6 @@ async function fetchWithRetry(url, retries = 3) {
                 if (altResponse.ok) return altResponse;
             }
 
-            // Wait before retrying
             await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
         } catch (error) {
             console.warn(`Attempt ${i + 1} failed for ${url}:`, error);
@@ -116,6 +121,17 @@ async function fetchWithRetry(url, retries = 3) {
 }
 
 async function fetchPointsOfInterest() {
+    // First check if we should fetch
+    if (!shouldFetchRefuges(map)) {
+        if (map.getSource('refuges')) {
+            map.getSource('refuges').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+        return;
+    }
+
     const currentZoom = map.getZoom();
     if (currentZoom < 11) {
         map.getSource('refuges').setData({
@@ -479,6 +495,17 @@ function setupRefugesEventListeners() {
 
     map.on('mouseleave', 'refuges-layer', () => {
         map.getCanvas().style.cursor = '';
+    });
+
+    // Add visibility change handler
+    map.on('styledata', () => {
+        const wasEnabled = isRefugesEnabled;
+        isRefugesEnabled = shouldFetchRefuges(map);
+        
+        // If visibility changed from disabled to enabled, trigger a fetch
+        if (!wasEnabled && isRefugesEnabled) {
+            fetchPointsOfInterest();
+        }
     });
 }
 
