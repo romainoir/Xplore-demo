@@ -90,12 +90,154 @@ function calculateZoomScale(zoom) {
     // Scale factor changes with zoom level
     return baseScale * Math.pow(2, baseZoom - zoom);
 }
+
+// Efficient implementation of median filter for terrain data
+function medianFilter(data, width, height, kernelSize = 3) {
+    const halfKernel = Math.floor(kernelSize / 2);
+    const result = new Float32Array(width * height);
+    const kernel = new Float32Array(kernelSize * kernelSize);
+    
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let kernelIndex = 0;
+            
+            // Gather values for the kernel window
+            for (let ky = -halfKernel; ky <= halfKernel; ky++) {
+                const ny = Math.max(0, Math.min(height - 1, y + ky));
+                
+                for (let kx = -halfKernel; kx <= halfKernel; kx++) {
+                    const nx = Math.max(0, Math.min(width - 1, x + kx));
+                    kernel[kernelIndex++] = data[ny * width + nx];
+                }
+            }
+            
+            // Sort kernel values and take median
+            kernel.sort((a, b) => a - b);
+            result[y * width + x] = kernel[Math.floor(kernelSize * kernelSize / 2)];
+        }
+    }
+    
+    return result;
+}
+
+// Gaussian blur for smoother results
+function gaussianBlur(data, width, height, sigma = 1.4) {
+    const kernelSize = Math.max(3, Math.ceil(sigma * 3) * 2 + 1);
+    const halfKernel = Math.floor(kernelSize / 2);
+    const kernel = createGaussianKernel(kernelSize, sigma);
+    const result = new Float32Array(width * height);
+    const temp = new Float32Array(width * height);
+    
+    // Horizontal pass
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let sum = 0;
+            let weightSum = 0;
+            
+            for (let kx = -halfKernel; kx <= halfKernel; kx++) {
+                const nx = Math.max(0, Math.min(width - 1, x + kx));
+                const weight = kernel[kx + halfKernel];
+                sum += data[y * width + nx] * weight;
+                weightSum += weight;
+            }
+            
+            temp[y * width + x] = sum / weightSum;
+        }
+    }
+    
+    // Vertical pass
+    for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) {
+            let sum = 0;
+            let weightSum = 0;
+            
+            for (let ky = -halfKernel; ky <= halfKernel; ky++) {
+                const ny = Math.max(0, Math.min(height - 1, y + ky));
+                const weight = kernel[ky + halfKernel];
+                sum += temp[ny * width + x] * weight;
+                weightSum += weight;
+            }
+            
+            result[y * width + x] = sum / weightSum;
+        }
+    }
+    
+    return result;
+}
+
+function createGaussianKernel(size, sigma) {
+    const kernel = new Float32Array(size);
+    const center = Math.floor(size / 2);
+    let sum = 0;
+    
+    for (let i = 0; i < size; i++) {
+        const x = i - center;
+        kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
+        sum += kernel[i];
+    }
+    
+    // Normalize kernel
+    for (let i = 0; i < size; i++) {
+        kernel[i] /= sum;
+    }
+    
+    return kernel;
+}
+
+// Combined filter that applies both median and gaussian blur
+function applyTerrainFilters(heightmap, width, height, options = {}) {
+    const {
+        medianKernelSize = 3,
+        gaussianSigma = 1.4,
+        iterations = 1
+    } = options;
+    
+    let filtered = heightmap;
+    
+    for (let i = 0; i < iterations; i++) {
+        // Apply median filter first to remove spikes
+        filtered = medianFilter(filtered, width, height, medianKernelSize);
+        
+        // Then apply gaussian blur for smoother transitions
+        filtered = gaussianBlur(filtered, width, height, gaussianSigma);
+    }
+    
+    return filtered;
+}
+
+// Adaptive filter settings based on zoom level
+function getFilterSettings(zoom) {
+    // Adjust filter parameters based on zoom level
+    if (zoom >= 16) {
+        return {
+            medianKernelSize: 5,    // Larger kernel for high zoom levels
+            gaussianSigma: 1.8,
+            iterations: 2
+        };
+    } else if (zoom >= 14) {
+        return {
+            medianKernelSize: 3,
+            gaussianSigma: 1.4,
+            iterations: 1
+        };
+    } else {
+        return {
+            medianKernelSize: 3,
+            gaussianSigma: 1.2,
+            iterations: 1
+        };
+    }
+}
 function calculateGradients(heightmap, width, height, zoom) {
     const scale = calculateZoomScale(zoom);
     const gradients = new Float32Array(width * height * 2);
     const invScale = 1 / scale;
     const widthMinus1 = width - 1;
     const heightMinus1 = height - 1;
+    
+    // Apply terrain filtering with zoom-dependent settings
+    const filterSettings = getFilterSettings(zoom);
+    const filteredHeightmap = applyTerrainFilters(heightmap, width, height, filterSettings);
     
     // Process 4 pixels at once where possible
     const blockSize = 4;
@@ -117,10 +259,10 @@ function calculateGradients(heightmap, width, height, zoom) {
             const xPrev = currX > 0 ? currX - 1 : 0;
             const xNext = currX < widthMinus1 ? currX + 1 : widthMinus1;
             
-            const dzdx = (heightmap[currY * width + xNext] - heightmap[currY * width + xPrev]) * 
+            const dzdx = (filteredHeightmap[currY * width + xNext] - filteredHeightmap[currY * width + xPrev]) * 
                         ((currX === 0 || currX === widthMinus1) ? invScale : (0.5 * invScale));
             
-            const dzdy = (heightmap[yNext * width + currX] - heightmap[yPrev * width + currX]) * 
+            const dzdy = (filteredHeightmap[yNext * width + currX] - filteredHeightmap[yPrev * width + currX]) * 
                         ((currY === 0 || currY === heightMinus1) ? invScale : (0.5 * invScale));
             
             const gradIdx = (i + j) * 2;
@@ -139,10 +281,10 @@ function calculateGradients(heightmap, width, height, zoom) {
         const xPrev = x > 0 ? x - 1 : 0;
         const xNext = x < widthMinus1 ? x + 1 : widthMinus1;
         
-        const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
+        const dzdx = (filteredHeightmap[y * width + xNext] - filteredHeightmap[y * width + xPrev]) * 
                     ((x === 0 || x === widthMinus1) ? invScale : (0.5 * invScale));
         
-        const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
+        const dzdy = (filteredHeightmap[yNext * width + x] - filteredHeightmap[yPrev * width + x]) * 
                     ((y === 0 || y === heightMinus1) ? invScale : (0.5 * invScale));
         
         const gradIdx = i * 2;
@@ -152,6 +294,7 @@ function calculateGradients(heightmap, width, height, zoom) {
     
     return gradients;
 }
+
 function calculateNormalMap(gradients, width, height) {
     const normals = new Float32Array(width * height * 3);
     
