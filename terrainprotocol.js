@@ -1,47 +1,65 @@
-// terrainprotocol.js
-
-class CacheManager {
-    constructor(maxSize) {
+// Cache only raw DEM tiles
+class DEMCache {
+    constructor(maxSize = 800) {
         this.cache = new Map();
         this.maxSize = maxSize;
-        this.accessOrder = new Map();
-        this.accessCounter = 0;
+        this.accessOrder = [];
     }
 
     get(key) {
-        const value = this.cache.get(key);
-        if (value !== undefined) {
-            this.accessOrder.set(key, ++this.accessCounter);
-            return value;
+        const entry = this.cache.get(key);
+        if (entry) {
+            // Move to end of access order
+            this.accessOrder = this.accessOrder.filter(k => k !== key);
+            this.accessOrder.push(key);
+            return entry;
         }
         return null;
     }
 
     set(key, value) {
-        if (this.cache.size >= this.maxSize) {
-            let oldestAccess = Infinity;
-            let oldestKey = null;
-            for (const [k, accessTime] of this.accessOrder) {
-                if (accessTime < oldestAccess) {
-                    oldestAccess = accessTime;
-                    oldestKey = k;
-                }
-            }
-            if (oldestKey) {
-                this.cache.delete(oldestKey);
-                this.accessOrder.delete(oldestKey);
-            }
+        // Evict oldest entries if cache is full
+        while (this.cache.size >= this.maxSize) {
+            const oldestKey = this.accessOrder.shift();
+            this.cache.delete(oldestKey);
         }
+
         this.cache.set(key, value);
-        this.accessOrder.set(key, ++this.accessCounter);
+        this.accessOrder.push(key);
+    }
+
+    clear() {
+        this.cache.clear();
+        this.accessOrder = [];
+    }
+}
+class RequestQueue {
+    constructor() {
+        this.pending = new Map();
+    }
+
+    async enqueue(key, operation) {
+        if (this.pending.has(key)) {
+            // Return existing promise if this request is already in flight
+            return this.pending.get(key);
+        }
+
+        const promise = operation().finally(() => {
+            this.pending.delete(key);
+        });
+
+        this.pending.set(key, promise);
+        return promise;
     }
 }
 
-// Initialize cache managers with increased size
-const MAX_CACHE_SIZE = 4000;
-const demCacheManager = new CacheManager(MAX_CACHE_SIZE);
-const processedCacheManager = new CacheManager(MAX_CACHE_SIZE);
+// Create instances
+const demRequestQueue = new RequestQueue();
+
+// Single cache instance for raw DEM data
+const demCache = new DEMCache(400); // Smaller cache size since MapLibre handles final tiles
 const demCapabilities = new Map();
+
 
 // Constants for calculations
 const RAD_TO_DEG = 180 / Math.PI;
@@ -73,98 +91,269 @@ function calculateZoomScale(zoom) {
     return baseScale * Math.pow(2, baseZoom - zoom);
 }
 
-function calculateNormals(heightmap, width, height, zoom) {
+// Efficient implementation of median filter for terrain data
+function medianFilter(data, width, height, kernelSize = 3) {
+    const halfKernel = Math.floor(kernelSize / 2);
+    const result = new Float32Array(width * height);
+    const kernel = new Float32Array(kernelSize * kernelSize);
+    
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let kernelIndex = 0;
+            
+            // Gather values for the kernel window
+            for (let ky = -halfKernel; ky <= halfKernel; ky++) {
+                const ny = Math.max(0, Math.min(height - 1, y + ky));
+                
+                for (let kx = -halfKernel; kx <= halfKernel; kx++) {
+                    const nx = Math.max(0, Math.min(width - 1, x + kx));
+                    kernel[kernelIndex++] = data[ny * width + nx];
+                }
+            }
+            
+            // Sort kernel values and take median
+            kernel.sort((a, b) => a - b);
+            result[y * width + x] = kernel[Math.floor(kernelSize * kernelSize / 2)];
+        }
+    }
+    
+    return result;
+}
+
+// Gaussian blur for smoother results
+function gaussianBlur(data, width, height, sigma = 1.4) {
+    const kernelSize = Math.max(3, Math.ceil(sigma * 3) * 2 + 1);
+    const halfKernel = Math.floor(kernelSize / 2);
+    const kernel = createGaussianKernel(kernelSize, sigma);
+    const result = new Float32Array(width * height);
+    const temp = new Float32Array(width * height);
+    
+    // Horizontal pass
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let sum = 0;
+            let weightSum = 0;
+            
+            for (let kx = -halfKernel; kx <= halfKernel; kx++) {
+                const nx = Math.max(0, Math.min(width - 1, x + kx));
+                const weight = kernel[kx + halfKernel];
+                sum += data[y * width + nx] * weight;
+                weightSum += weight;
+            }
+            
+            temp[y * width + x] = sum / weightSum;
+        }
+    }
+    
+    // Vertical pass
+    for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) {
+            let sum = 0;
+            let weightSum = 0;
+            
+            for (let ky = -halfKernel; ky <= halfKernel; ky++) {
+                const ny = Math.max(0, Math.min(height - 1, y + ky));
+                const weight = kernel[ky + halfKernel];
+                sum += temp[ny * width + x] * weight;
+                weightSum += weight;
+            }
+            
+            result[y * width + x] = sum / weightSum;
+        }
+    }
+    
+    return result;
+}
+
+function createGaussianKernel(size, sigma) {
+    const kernel = new Float32Array(size);
+    const center = Math.floor(size / 2);
+    let sum = 0;
+    
+    for (let i = 0; i < size; i++) {
+        const x = i - center;
+        kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
+        sum += kernel[i];
+    }
+    
+    // Normalize kernel
+    for (let i = 0; i < size; i++) {
+        kernel[i] /= sum;
+    }
+    
+    return kernel;
+}
+
+// Combined filter that applies both median and gaussian blur
+function applyTerrainFilters(heightmap, width, height, options = {}) {
+    const {
+        medianKernelSize = 3,
+        gaussianSigma = 1.4,
+        iterations = 1
+    } = options;
+    
+    let filtered = heightmap;
+    
+    for (let i = 0; i < iterations; i++) {
+        // Apply median filter first to remove spikes
+        filtered = medianFilter(filtered, width, height, medianKernelSize);
+        
+        // Then apply gaussian blur for smoother transitions
+        filtered = gaussianBlur(filtered, width, height, gaussianSigma);
+    }
+    
+    return filtered;
+}
+
+// Adaptive filter settings based on zoom level
+function getFilterSettings(zoom) {
+    // Adjust filter parameters based on zoom level
+    if (zoom >= 16) {
+        return {
+            medianKernelSize: 5,    // Larger kernel for high zoom levels
+            gaussianSigma: 1.8,
+            iterations: 2
+        };
+    } else if (zoom >= 14) {
+        return {
+            medianKernelSize: 3,
+            gaussianSigma: 1.4,
+            iterations: 1
+        };
+    } else {
+        return {
+            medianKernelSize: 3,
+            gaussianSigma: 1.2,
+            iterations: 1
+        };
+    }
+}
+function calculateGradients(heightmap, width, height, zoom) {
     const scale = calculateZoomScale(zoom);
+    const gradients = new Float32Array(width * height * 2);
+    const invScale = 1 / scale;
+    const widthMinus1 = width - 1;
+    const heightMinus1 = height - 1;
+    
+    // Apply terrain filtering with zoom-dependent settings
+    const filterSettings = getFilterSettings(zoom);
+    const filteredHeightmap = applyTerrainFilters(heightmap, width, height, filterSettings);
+    
+    // Process 4 pixels at once where possible
+    const blockSize = 4;
+    const blockEnd = Math.floor(width * height / blockSize) * blockSize;
+    
+    for (let i = 0; i < blockEnd; i += blockSize) {
+        const y = Math.floor(i / width);
+        const x = i % width;
+        
+        // Process 4 consecutive pixels
+        for (let j = 0; j < blockSize; j++) {
+            const currY = Math.floor((i + j) / width);
+            const currX = (i + j) % width;
+            
+            if (currY >= height) continue;
+            
+            const yPrev = currY > 0 ? currY - 1 : 0;
+            const yNext = currY < heightMinus1 ? currY + 1 : heightMinus1;
+            const xPrev = currX > 0 ? currX - 1 : 0;
+            const xNext = currX < widthMinus1 ? currX + 1 : widthMinus1;
+            
+            const dzdx = (filteredHeightmap[currY * width + xNext] - filteredHeightmap[currY * width + xPrev]) * 
+                        ((currX === 0 || currX === widthMinus1) ? invScale : (0.5 * invScale));
+            
+            const dzdy = (filteredHeightmap[yNext * width + currX] - filteredHeightmap[yPrev * width + currX]) * 
+                        ((currY === 0 || currY === heightMinus1) ? invScale : (0.5 * invScale));
+            
+            const gradIdx = (i + j) * 2;
+            gradients[gradIdx] = dzdx;
+            gradients[gradIdx + 1] = dzdy;
+        }
+    }
+    
+    // Handle remaining pixels
+    for (let i = blockEnd; i < width * height; i++) {
+        const y = Math.floor(i / width);
+        const x = i % width;
+        
+        const yPrev = y > 0 ? y - 1 : 0;
+        const yNext = y < heightMinus1 ? y + 1 : heightMinus1;
+        const xPrev = x > 0 ? x - 1 : 0;
+        const xNext = x < widthMinus1 ? x + 1 : widthMinus1;
+        
+        const dzdx = (filteredHeightmap[y * width + xNext] - filteredHeightmap[y * width + xPrev]) * 
+                    ((x === 0 || x === widthMinus1) ? invScale : (0.5 * invScale));
+        
+        const dzdy = (filteredHeightmap[yNext * width + x] - filteredHeightmap[yPrev * width + x]) * 
+                    ((y === 0 || y === heightMinus1) ? invScale : (0.5 * invScale));
+        
+        const gradIdx = i * 2;
+        gradients[gradIdx] = dzdx;
+        gradients[gradIdx + 1] = dzdy;
+    }
+    
+    return gradients;
+}
+
+function calculateNormalMap(gradients, width, height) {
     const normals = new Float32Array(width * height * 3);
-    const widthMinus1 = width - 1;
-    const heightMinus1 = height - 1;
-    const invScale = 1 / scale;
     
-    for (let y = 0; y < height; y++) {
-        const yPrev = y > 0 ? y - 1 : 0;
-        const yNext = y < heightMinus1 ? y + 1 : heightMinus1;
+    for (let i = 0; i < width * height; i++) {
+        const gradIdx = i * 2;
+        const normIdx = i * 3;
+        const dzdx = gradients[gradIdx];
+        const dzdy = gradients[gradIdx + 1];
         
-        for (let x = 0; x < width; x++) {
-            const idx = (y * width + x) * 3;
-            const xPrev = x > 0 ? x - 1 : 0;
-            const xNext = x < widthMinus1 ? x + 1 : widthMinus1;
-            
-            const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
-                        ((x === 0 || x === widthMinus1) ? invScale : (0.5 * invScale));
-            
-            const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
-                        ((y === 0 || y === heightMinus1) ? invScale : (0.5 * invScale));
-            
-            const invLength = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
-            
-            normals[idx] = -dzdx * invLength;
-            normals[idx + 1] = -dzdy * invLength;
-            normals[idx + 2] = invLength;
-        }
+        const invLength = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
+        normals[normIdx] = -dzdx * invLength;
+        normals[normIdx + 1] = -dzdy * invLength;
+        normals[normIdx + 2] = invLength;
     }
     
-    return normals;
+    return encodeNormalMap(normals);
 }
-
-function calculateSlope(heightmap, width, height, zoom) {
-    const scale = calculateZoomScale(zoom);
+function calculateSlopeMap(gradients, width, height) {
     const slopes = new Float32Array(width * height);
-    const widthMinus1 = width - 1;
-    const heightMinus1 = height - 1;
-    const invScale = 1 / scale;
     
-    for (let y = 0; y < height; y++) {
-        const yPrev = y > 0 ? y - 1 : 0;
-        const yNext = y < heightMinus1 ? y + 1 : heightMinus1;
-        
-        for (let x = 0; x < width; x++) {
-            const xPrev = x > 0 ? x - 1 : 0;
-            const xNext = x < widthMinus1 ? x + 1 : widthMinus1;
-            
-            const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
-                        ((x === 0 || x === widthMinus1) ? invScale : (0.5 * invScale));
-            
-            const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
-                        ((y === 0 || y === heightMinus1) ? invScale : (0.5 * invScale));
-            
-            slopes[y * width + x] = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * RAD_TO_DEG;
-        }
+    for (let i = 0; i < width * height; i++) {
+        const gradIdx = i * 2;
+        const dzdx = gradients[gradIdx];
+        const dzdy = gradients[gradIdx + 1];
+        slopes[i] = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * RAD_TO_DEG;
     }
     
-    return slopes;
+    return encodeSlopeMap(slopes);
 }
-
-function calculateAspect(heightmap, width, height, zoom) {
-    const scale = calculateZoomScale(zoom);
+function calculateAspectMap(gradients, width, height) {
     const aspects = new Float32Array(width * height);
-    const widthMinus1 = width - 1;
-    const heightMinus1 = height - 1;
-    const invScale = 1 / scale;
     
-    for (let y = 0; y < height; y++) {
-        const yPrev = y > 0 ? y - 1 : 0;
-        const yNext = y < heightMinus1 ? y + 1 : heightMinus1;
+    for (let i = 0; i < width * height; i++) {
+        const gradIdx = i * 2;
+        const dzdx = gradients[gradIdx];
+        const dzdy = gradients[gradIdx + 1];
         
-        for (let x = 0; x < width; x++) {
-            const xPrev = x > 0 ? x - 1 : 0;
-            const xNext = x < widthMinus1 ? x + 1 : widthMinus1;
-            
-            const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
-                        ((x === 0 || x === widthMinus1) ? invScale : (0.5 * invScale));
-            
-            const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
-                        ((y === 0 || y === heightMinus1) ? invScale : (0.5 * invScale));
-            
-            let aspect = Math.atan2(dzdy, -dzdx) * RAD_TO_DEG;
-            aspect = 90 - aspect;
-            if (aspect < 0) aspect += 360;
-            if (aspect > 360) aspect -= 360;
-            
-            aspects[y * width + x] = aspect;
-        }
+        let aspect = Math.atan2(dzdy, -dzdx) * RAD_TO_DEG;
+        aspect = 90 - aspect;
+        if (aspect < 0) aspect += 360;
+        if (aspect > 360) aspect -= 360;
+        aspects[i] = aspect;
     }
     
-    return aspects;
+    return encodeAspectMap(aspects);
+}
+function calculateElevationMap(resampledDEM, width, height) {
+    const imageData = new Uint8ClampedArray(width * height * 4);
+    
+    for (let i = 0; i < width * height; i++) {
+        const rgb = encodeTerrainRGB(resampledDEM[i]);
+        const idx = i * 4;
+        imageData[idx] = rgb[0];
+        imageData[idx + 1] = rgb[1];
+        imageData[idx + 2] = rgb[2];
+        imageData[idx + 3] = 255;
+    }
+    
+    return imageData;
 }
 
 const COLOR_MAPS = {
@@ -273,58 +462,69 @@ function encodeTerrainRGB(elevation) {
     ];
 }
 
+// Update getDEMTile to use the queue
 async function getDEMTile(tx, ty, demZoom, demMatrix) {
-    const cacheKey = getCacheKey(demZoom, tx, ty, 'dem');
-    const cachedTile = demCacheManager.get(cacheKey);
+    const cacheKey = `${demZoom}_${tx}_${ty}`;
+    const cachedTile = demCache.get(cacheKey);
     if (cachedTile) return cachedTile;
 
-    try {
-        const demUrl = `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS&TILEMATRIXSET=WGS84G&TILEMATRIX=${demZoom}&TILEROW=${ty}&TILECOL=${tx}&FORMAT=image/x-bil;bits=32&STYLE=normal`;
-        const response = await fetch(demUrl);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    // Use request queue to deduplicate in-flight requests
+    return demRequestQueue.enqueue(cacheKey, async () => {
+        try {
+            const demUrl = `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS&TILEMATRIXSET=WGS84G&TILEMATRIX=${demZoom}&TILEROW=${ty}&TILECOL=${tx}&FORMAT=image/x-bil;bits=32&STYLE=normal`;
+            const response = await fetch(demUrl);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-        const buffer = await response.arrayBuffer();
-        const elevationData = new Float32Array(buffer);
+            const buffer = await response.arrayBuffer();
+            const elevationData = new Float32Array(buffer);
 
-        const [originLon, originLat] = demMatrix.topLeftCorner;
-        const degreesPerTileLon = 360 / demMatrix.matrixWidth;
-        const degreesPerTileLat = 180 / demMatrix.matrixHeight;
+            const [originLon, originLat] = demMatrix.topLeftCorner;
+            const degreesPerTileLon = 360 / demMatrix.matrixWidth;
+            const degreesPerTileLat = 180 / demMatrix.matrixHeight;
 
-        const tileBounds = [
-            [originLat - (ty + 1) * degreesPerTileLat, originLon + tx * degreesPerTileLon],
-            [originLat - ty * degreesPerTileLat, originLon + (tx + 1) * degreesPerTileLon]
-        ];
+            const tileBounds = [
+                [originLat - (ty + 1) * degreesPerTileLat, originLon + tx * degreesPerTileLon],
+                [originLat - ty * degreesPerTileLat, originLon + (tx + 1) * degreesPerTileLon]
+            ];
 
-        const tileData = { elevationData, bounds: tileBounds, x: tx, y: ty };
-        demCacheManager.set(cacheKey, tileData);
-        return tileData;
-    } catch (error) {
-        console.error('Error fetching DEM tile:', error);
-        throw error;
-    }
+            const tileData = { elevationData, bounds: tileBounds, x: tx, y: ty };
+            demCache.set(cacheKey, tileData);
+            return tileData;
+        } catch (error) {
+            console.error('Error fetching DEM tile:', error);
+            throw error;
+        }
+    });
 }
+
+// Also update fetchCapabilities to use request queue
+const capabilitiesQueue = new RequestQueue();
 
 async function fetchCapabilities() {
     if (!demCapabilities.has('WGS84G')) {
-        try {
-            const response = await fetch('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities');
-            if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
-            
-            const text = await response.text();
-            const tileMatrixSetRegex = /<TileMatrixSet>([\s\S]*?)<\/TileMatrixSet>/g;
-            let match;
+        return capabilitiesQueue.enqueue('capabilities', async () => {
+            if (!demCapabilities.has('WGS84G')) {  // Double-check after getting queue lock
+                try {
+                    const response = await fetch('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities');
+                    if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
+                    
+                    const text = await response.text();
+                    const tileMatrixSetRegex = /<TileMatrixSet>([\s\S]*?)<\/TileMatrixSet>/g;
+                    let match;
 
-            while ((match = tileMatrixSetRegex.exec(text)) !== null) {
-                const tmsContent = match[1];
-                const identifier = extractValue(tmsContent, 'ows:Identifier');
-                if (identifier) {
-                    demCapabilities.set(identifier, parseTileMatrixSet(tmsContent));
+                    while ((match = tileMatrixSetRegex.exec(text)) !== null) {
+                        const tmsContent = match[1];
+                        const identifier = extractValue(tmsContent, 'ows:Identifier');
+                        if (identifier) {
+                            demCapabilities.set(identifier, parseTileMatrixSet(tmsContent));
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error fetching WMTS capabilities:", error);
+                    throw error;
                 }
             }
-        } catch (error) {
-            console.error("Error fetching WMTS capabilities:", error);
-            throw error;
-        }
+        });
     }
 }
 
@@ -356,10 +556,6 @@ function parseTileMatrixSet(content) {
 }
 
 async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
-    const cacheKey = getCacheKey(zoom, x, y, type);
-    const cachedResult = processedCacheManager.get(cacheKey);
-    if (cachedResult) return cachedResult;
-
     const OUTPUT_SIZE = 256;
     const demZoom = Math.max(0, zoom);
 
@@ -380,15 +576,20 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
     const yMin = Math.floor((originLat - tileBounds[1][0]) / degreesPerTileLat);
     const yMax = Math.floor((originLat - tileBounds[0][0]) / degreesPerTileLat);
 
-    // Fetch all required DEM tiles in parallel
-    const demTilePromises = [];
-    for (let tx = xMin; tx <= xMax; tx++) {
-        for (let ty = yMin; ty <= yMax; ty++) {
-            demTilePromises.push(getDEMTile(tx, ty, demZoom, demMatrix));
-        }
-    }
+    // Fetch required DEM tiles
+    const demTiles = (await Promise.all(
+        Array.from({ length: (xMax - xMin + 1) * (yMax - yMin + 1) }, async (_, i) => {
+            const tx = xMin + (i % (xMax - xMin + 1));
+            const ty = yMin + Math.floor(i / (xMax - xMin + 1));
+            try {
+                return await getDEMTile(tx, ty, demZoom, demMatrix);
+            } catch (error) {
+                console.warn(`Failed to fetch DEM tile ${tx},${ty}`, error);
+                return null;
+            }
+        })
+    )).filter(Boolean); // Remove any null results from failed fetches
 
-    const demTiles = (await Promise.all(demTilePromises)).filter(Boolean);
     if (!demTiles.length) {
         throw new Error('No DEM tiles fetched successfully.');
     }
@@ -452,34 +653,25 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
 
     // Generate visualization based on type
     let imageData;
-    switch (type) {
-        case 'normal': {
-            const normals = calculateNormals(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE, zoom);
-            imageData = encodeNormalMap(normals);
-            break;
+    if (type !== 'elevation') {
+        // Calculate gradients once for all non-elevation types
+        const gradients = calculateGradients(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE, zoom);
+        
+        switch (type) {
+            case 'normal':
+                imageData = calculateNormalMap(gradients, OUTPUT_SIZE, OUTPUT_SIZE);
+                break;
+            case 'slope':
+                imageData = calculateSlopeMap(gradients, OUTPUT_SIZE, OUTPUT_SIZE);
+                break;
+            case 'aspect':
+                imageData = calculateAspectMap(gradients, OUTPUT_SIZE, OUTPUT_SIZE);
+                break;
+            default:
+                throw new Error(`Unknown visualization type: ${type}`);
         }
-        case 'slope': {
-            const slopes = calculateSlope(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE, zoom);
-            imageData = encodeSlopeMap(slopes);
-            break;
-        }
-        case 'aspect': {
-            const aspects = calculateAspect(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE, zoom);
-            imageData = encodeAspectMap(aspects);
-            break;
-        }
-        default: {
-            // Default elevation encoding
-            imageData = new Uint8ClampedArray(OUTPUT_SIZE * OUTPUT_SIZE * 4);
-            for (let i = 0; i < OUTPUT_SIZE * OUTPUT_SIZE; i++) {
-                const rgb = encodeTerrainRGB(resampledDEM[i]);
-                const idx = i * 4;
-                imageData[idx] = rgb[0];
-                imageData[idx + 1] = rgb[1];
-                imageData[idx + 2] = rgb[2];
-                imageData[idx + 3] = 255;
-            }
-        }
+    } else {
+        imageData = calculateElevationMap(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE);
     }
 
     // Convert to PNG buffer
@@ -488,10 +680,7 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
     ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
 
     const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
-    const buffer = await blob.arrayBuffer();
-    
-    processedCacheManager.set(cacheKey, buffer);
-    return buffer;
+    return await blob.arrayBuffer();
 }
 
 export async function setupTerrainProtocol(maplibregl) {
@@ -505,6 +694,7 @@ export async function setupTerrainProtocol(maplibregl) {
             const [, z, x, y, typeMatch] = match;
             const type = typeMatch ? typeMatch.slice(1) : 'elevation';
 
+            // Let MapLibre handle the caching of processed tiles
             return {
                 data: await processDEMTile({
                     zoom: parseInt(z, 10),
@@ -518,4 +708,12 @@ export async function setupTerrainProtocol(maplibregl) {
             throw error;
         }
     });
+
+    // Clean up cache when map is removed
+    return {
+        cleanup: () => {
+            demCache.clear();
+            demCapabilities.clear();
+        }
+    };
 }
