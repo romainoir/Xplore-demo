@@ -210,20 +210,20 @@ function getFilterSettings(zoom) {
     // Adjust filter parameters based on zoom level
     if (zoom >= 16) {
         return {
-            medianKernelSize: 9,    // Larger kernel for high zoom levels
-            gaussianSigma: 1.8,
-            iterations: 2
+            medianKernelSize: 7,    // Larger kernel for high zoom levels
+            gaussianSigma: 1.0,
+            iterations: 1
         };
     } else if (zoom >= 14) {
         return {
-            medianKernelSize: 7,
-            gaussianSigma: 1.8,
-            iterations: 2
+            medianKernelSize: 5,
+            gaussianSigma: 1.0,
+            iterations: 1
         };
     } else {
         return {
-            medianKernelSize: 5,
-            gaussianSigma: 1.2,
+            medianKernelSize: 3,
+            gaussianSigma: 1.0,
             iterations: 1
         };
     }
