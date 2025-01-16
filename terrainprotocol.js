@@ -518,19 +518,17 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
                 dx * dy * mergedDEM[y1 * mergedWidth + x1];
         }
     }
-
     // Generate visualization based on type
     let imageData;
-    if (type !== 'elevation') {
-        // Calculate gradients once for all non-elevation types
+    if (type === 'slope') {
+        imageData = calculateSlopeMap(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE, zoom);
+    } else if (type !== 'elevation') {
+        // Calculate regular gradients for normal and aspect
         const gradients = calculateGradients(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE, zoom);
         
         switch (type) {
             case 'normal':
                 imageData = calculateNormalMap(gradients, OUTPUT_SIZE, OUTPUT_SIZE);
-                break;
-            case 'slope':
-                imageData = calculateSlopeMap(gradients, OUTPUT_SIZE, OUTPUT_SIZE);
                 break;
             case 'aspect':
                 imageData = calculateAspectMap(gradients, OUTPUT_SIZE, OUTPUT_SIZE);
