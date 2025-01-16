@@ -91,143 +91,6 @@ function calculateZoomScale(zoom) {
     return baseScale * Math.pow(2, baseZoom - zoom);
 }
 
-// Efficient implementation of median filter for terrain data
-function medianFilter(data, width, height, kernelSize = 3) {
-    const halfKernel = Math.floor(kernelSize / 2);
-    const result = new Float32Array(width * height);
-    const kernel = new Float32Array(kernelSize * kernelSize);
-    
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            let kernelIndex = 0;
-            
-            // Gather values for the kernel window
-            for (let ky = -halfKernel; ky <= halfKernel; ky++) {
-                const ny = Math.max(0, Math.min(height - 1, y + ky));
-                
-                for (let kx = -halfKernel; kx <= halfKernel; kx++) {
-                    const nx = Math.max(0, Math.min(width - 1, x + kx));
-                    kernel[kernelIndex++] = data[ny * width + nx];
-                }
-            }
-            
-            // Sort kernel values and take median
-            kernel.sort((a, b) => a - b);
-            result[y * width + x] = kernel[Math.floor(kernelSize * kernelSize / 2)];
-        }
-    }
-    
-    return result;
-}
-
-// Gaussian blur for smoother results
-function gaussianBlur(data, width, height, sigma = 1.4) {
-    const kernelSize = Math.max(3, Math.ceil(sigma * 3) * 2 + 1);
-    const halfKernel = Math.floor(kernelSize / 2);
-    const kernel = createGaussianKernel(kernelSize, sigma);
-    const result = new Float32Array(width * height);
-    const temp = new Float32Array(width * height);
-    
-    // Horizontal pass
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            let sum = 0;
-            let weightSum = 0;
-            
-            for (let kx = -halfKernel; kx <= halfKernel; kx++) {
-                const nx = Math.max(0, Math.min(width - 1, x + kx));
-                const weight = kernel[kx + halfKernel];
-                sum += data[y * width + nx] * weight;
-                weightSum += weight;
-            }
-            
-            temp[y * width + x] = sum / weightSum;
-        }
-    }
-    
-    // Vertical pass
-    for (let x = 0; x < width; x++) {
-        for (let y = 0; y < height; y++) {
-            let sum = 0;
-            let weightSum = 0;
-            
-            for (let ky = -halfKernel; ky <= halfKernel; ky++) {
-                const ny = Math.max(0, Math.min(height - 1, y + ky));
-                const weight = kernel[ky + halfKernel];
-                sum += temp[ny * width + x] * weight;
-                weightSum += weight;
-            }
-            
-            result[y * width + x] = sum / weightSum;
-        }
-    }
-    
-    return result;
-}
-
-function createGaussianKernel(size, sigma) {
-    const kernel = new Float32Array(size);
-    const center = Math.floor(size / 2);
-    let sum = 0;
-    
-    for (let i = 0; i < size; i++) {
-        const x = i - center;
-        kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
-        sum += kernel[i];
-    }
-    
-    // Normalize kernel
-    for (let i = 0; i < size; i++) {
-        kernel[i] /= sum;
-    }
-    
-    return kernel;
-}
-
-// Combined filter that applies both median and gaussian blur
-function applyTerrainFilters(heightmap, width, height, options = {}) {
-    const {
-        medianKernelSize = 3,
-        gaussianSigma = 1.4,
-        iterations = 1
-    } = options;
-    
-    let filtered = heightmap;
-    
-    for (let i = 0; i < iterations; i++) {
-        // Apply median filter first to remove spikes
-        filtered = medianFilter(filtered, width, height, medianKernelSize);
-        
-        // Then apply gaussian blur for smoother transitions
-        filtered = gaussianBlur(filtered, width, height, gaussianSigma);
-    }
-    
-    return filtered;
-}
-
-// Adaptive filter settings based on zoom level
-function getFilterSettings(zoom) {
-    // Adjust filter parameters based on zoom level
-    if (zoom >= 16) {
-        return {
-            medianKernelSize: 7,    // Larger kernel for high zoom levels
-            gaussianSigma: 1.0,
-            iterations: 1
-        };
-    } else if (zoom >= 14) {
-        return {
-            medianKernelSize: 5,
-            gaussianSigma: 1.0,
-            iterations: 1
-        };
-    } else {
-        return {
-            medianKernelSize: 3,
-            gaussianSigma: 1.0,
-            iterations: 1
-        };
-    }
-}
 function calculateGradients(heightmap, width, height, zoom) {
     const scale = calculateZoomScale(zoom);
     const gradients = new Float32Array(width * height * 2);
@@ -235,44 +98,8 @@ function calculateGradients(heightmap, width, height, zoom) {
     const widthMinus1 = width - 1;
     const heightMinus1 = height - 1;
     
-    // Apply terrain filtering with zoom-dependent settings
-    const filterSettings = getFilterSettings(zoom);
-    const filteredHeightmap = applyTerrainFilters(heightmap, width, height, filterSettings);
-    
-    // Process 4 pixels at once where possible
-    const blockSize = 4;
-    const blockEnd = Math.floor(width * height / blockSize) * blockSize;
-    
-    for (let i = 0; i < blockEnd; i += blockSize) {
-        const y = Math.floor(i / width);
-        const x = i % width;
-        
-        // Process 4 consecutive pixels
-        for (let j = 0; j < blockSize; j++) {
-            const currY = Math.floor((i + j) / width);
-            const currX = (i + j) % width;
-            
-            if (currY >= height) continue;
-            
-            const yPrev = currY > 0 ? currY - 1 : 0;
-            const yNext = currY < heightMinus1 ? currY + 1 : heightMinus1;
-            const xPrev = currX > 0 ? currX - 1 : 0;
-            const xNext = currX < widthMinus1 ? currX + 1 : widthMinus1;
-            
-            const dzdx = (filteredHeightmap[currY * width + xNext] - filteredHeightmap[currY * width + xPrev]) * 
-                        ((currX === 0 || currX === widthMinus1) ? invScale : (0.5 * invScale));
-            
-            const dzdy = (filteredHeightmap[yNext * width + currX] - filteredHeightmap[yPrev * width + currX]) * 
-                        ((currY === 0 || currY === heightMinus1) ? invScale : (0.5 * invScale));
-            
-            const gradIdx = (i + j) * 2;
-            gradients[gradIdx] = dzdx;
-            gradients[gradIdx + 1] = dzdy;
-        }
-    }
-    
-    // Handle remaining pixels
-    for (let i = blockEnd; i < width * height; i++) {
+    // Regular gradients calculation for normal and aspect maps
+    for (let i = 0; i < width * height; i++) {
         const y = Math.floor(i / width);
         const x = i % width;
         
@@ -281,10 +108,10 @@ function calculateGradients(heightmap, width, height, zoom) {
         const xPrev = x > 0 ? x - 1 : 0;
         const xNext = x < widthMinus1 ? x + 1 : widthMinus1;
         
-        const dzdx = (filteredHeightmap[y * width + xNext] - filteredHeightmap[y * width + xPrev]) * 
+        const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
                     ((x === 0 || x === widthMinus1) ? invScale : (0.5 * invScale));
         
-        const dzdy = (filteredHeightmap[yNext * width + x] - filteredHeightmap[yPrev * width + x]) * 
+        const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
                     ((y === 0 || y === heightMinus1) ? invScale : (0.5 * invScale));
         
         const gradIdx = i * 2;
@@ -293,6 +120,98 @@ function calculateGradients(heightmap, width, height, zoom) {
     }
     
     return gradients;
+}
+
+// New function specifically for slope calculations with longer sampling distance
+function calculateLongDistanceSlope(heightmap, width, height, zoom) {
+    const scale = calculateZoomScale(zoom);
+    const slopes = new Float32Array(width * height);
+    const invScale = 1 / scale;
+    const widthMinus1 = width - 1;
+    const heightMinus1 = height - 1;
+    
+    // Calculate sampling distance based on zoom level and desired ground distance
+    // For a 25-meter sampling at zoom level 16
+    const baseDistanceMeters = 25; // meters
+    const pixelsPerMeter = (zoom >= 16) ? 1 : Math.pow(2, zoom - 16);
+    const samplingDistance = Math.max(1, Math.round(baseDistanceMeters * pixelsPerMeter));
+    
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            // Calculate sample points with larger distance
+            const xPrev = Math.max(0, x - samplingDistance);
+            const xNext = Math.min(widthMinus1, x + samplingDistance);
+            const yPrev = Math.max(0, y - samplingDistance);
+            const yNext = Math.min(heightMinus1, y + samplingDistance);
+            
+            // Calculate gradients over larger distance
+            const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
+                        (invScale / (xNext - xPrev));
+            
+            const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
+                        (invScale / (yNext - yPrev));
+            
+            // Calculate slope in degrees
+            slopes[y * width + x] = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * RAD_TO_DEG;
+        }
+    }
+    
+    return slopes;
+}
+
+function calculateSlopeMap(gradients, width, height) {
+    // Replace this function with the long-distance version
+    const slopes = calculateLongDistanceSlope(heightmap, width, height, zoom);
+    return encodeSlopeMap(slopes);
+}
+
+function encodeSlopeMap(slopes) {
+    const rgba = new Uint8ClampedArray(slopes.length * 4);
+    
+    // Adjusted thresholds for broader terrain analysis
+    const slopeThresholds = {
+        flat: 5,      // 0-5 degrees
+        gentle: 10,   // 5-10 degrees
+        moderate: 20, // 10-20 degrees
+        steep: 30,    // 20-30 degrees
+        verySteep: 45 // >30 degrees
+    };
+    
+    const colors = {
+        TRANSPARENT: [0, 0, 0, 0],          // flat
+        GREEN: [76, 175, 80, 255],          // gentle
+        YELLOW: [255, 235, 59, 255],        // moderate
+        ORANGE: [255, 152, 0, 255],         // steep
+        RED: [244, 67, 54, 255],            // very steep
+        VIOLET: [156, 39, 176, 255]         // extreme
+    };
+    
+    for (let i = 0; i < slopes.length; i++) {
+        const idx = i * 4;
+        const slope = slopes[i];
+        
+        let color;
+        if (slope < slopeThresholds.flat) {
+            color = colors.TRANSPARENT;
+        } else if (slope < slopeThresholds.gentle) {
+            color = colors.GREEN;
+        } else if (slope < slopeThresholds.moderate) {
+            color = colors.YELLOW;
+        } else if (slope < slopeThresholds.steep) {
+            color = colors.ORANGE;
+        } else if (slope < slopeThresholds.verySteep) {
+            color = colors.RED;
+        } else {
+            color = colors.VIOLET;
+        }
+        
+        rgba[idx] = color[0];
+        rgba[idx + 1] = color[1];
+        rgba[idx + 2] = color[2];
+        rgba[idx + 3] = color[3];
+    }
+    
+    return rgba;
 }
 
 function calculateNormalMap(gradients, width, height) {
@@ -312,18 +231,7 @@ function calculateNormalMap(gradients, width, height) {
     
     return encodeNormalMap(normals);
 }
-function calculateSlopeMap(gradients, width, height) {
-    const slopes = new Float32Array(width * height);
-    
-    for (let i = 0; i < width * height; i++) {
-        const gradIdx = i * 2;
-        const dzdx = gradients[gradIdx];
-        const dzdy = gradients[gradIdx + 1];
-        slopes[i] = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * RAD_TO_DEG;
-    }
-    
-    return encodeSlopeMap(slopes);
-}
+
 function calculateAspectMap(gradients, width, height) {
     const aspects = new Float32Array(width * height);
     
@@ -356,16 +264,6 @@ function calculateElevationMap(resampledDEM, width, height) {
     return imageData;
 }
 
-const COLOR_MAPS = {
-    SLOPE: {
-        TRANSPARENT: [0, 0, 0, 0],
-        YELLOW: [255, 255, 0, 255],
-        ORANGE: [255, 165, 0, 255],
-        RED: [255, 0, 0, 255],
-        VIOLET: [148, 0, 211, 255]
-    }
-};
-
 function encodeNormalMap(normals) {
     const rgba = new Uint8ClampedArray(normals.length / 3 * 4);
     const len = normals.length / 3;
@@ -377,36 +275,6 @@ function encodeNormalMap(normals) {
         rgba[idx + 1] = Math.floor((normals[nIdx + 1] + 1) * 127.5);
         rgba[idx + 2] = Math.floor((normals[nIdx + 2] + 1) * 127.5);
         rgba[idx + 3] = 255;
-    }
-    
-    return rgba;
-}
-
-function encodeSlopeMap(slopes) {
-    const rgba = new Uint8ClampedArray(slopes.length * 4);
-    const colors = COLOR_MAPS.SLOPE;
-    
-    for (let i = 0; i < slopes.length; i++) {
-        const idx = i * 4;
-        const slope = slopes[i];
-        
-        let color;
-        if (slope < 30) {
-            color = colors.TRANSPARENT;
-        } else if (slope < 35) {
-            color = colors.YELLOW;
-        } else if (slope < 40) {
-            color = colors.ORANGE;
-        } else if (slope < 45) {
-            color = colors.RED;
-        } else {
-            color = colors.VIOLET;
-        }
-        
-        rgba[idx] = color[0];
-        rgba[idx + 1] = color[1];
-        rgba[idx + 2] = color[2];
-        rgba[idx + 3] = color[3];
     }
     
     return rgba;
