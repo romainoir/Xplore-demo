@@ -343,9 +343,9 @@ body {
 }
 
 .loading-logo {
-    width: 400px;
+    width: 250px;
     height: auto;
-    animation: pulse 3s infinite;
+    animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
@@ -363,7 +363,7 @@ body {
 /* Directions toggle button */
 .directions-toggle {
     position: fixed;
-    bottom: 10px;
+    bottom: 20px;
     left: 10px;
     z-index: 1001;
     background: white;

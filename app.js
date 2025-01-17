@@ -6,6 +6,7 @@ import { layerStyles, addLayersToMap } from './layers.js';
 import { DirectionsManager } from './directions.js';
 import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the function
 
+
 // Initialize DEM source
 const demSource = new mlcontour.DemSource({
     url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
@@ -246,37 +247,6 @@ let planIGNLayers = [];
 demSource.setupMaplibre(maplibregl);
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 
-
-map.addControl(new maplibregl.NavigationControl({
-    showCompass: true,
-    visualizePitch: true
-}));
-
-map.addControl(new maplibregl.GlobeControl());
-
-map.addControl(new maplibregl.TerrainControl({
-    source: 'custom-dem',
-    exaggeration: 1.0,
-    onToggle: (enabled) => {
-        if (enabled) {
-           map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
-        } else {
-            // Disable 3D mode
-            map.setTerrain(null);
-        }
-    }
-}));
-
-map.addControl(new maplibregl.ScaleControl());
-
-map.addControl(new maplibregl.GeolocateControl({
-    positionOptions: {
-        enableHighAccuracy: true
-    },
-    trackUserLocation: true,
-    showUserHeading: true
-}));
-
 const geocoderApi = {
     forwardGeocode: async (config) => {
         const features = [];
@@ -318,6 +288,41 @@ map.addControl(
         position: 'top-left'
     })
 );
+
+map.addControl(new maplibregl.NavigationControl({
+    showCompass: true,
+    visualizePitch: true
+}));
+
+map.addControl(new maplibregl.GlobeControl());
+
+map.addControl(new maplibregl.TerrainControl({
+    source: 'custom-dem',
+    exaggeration: 1.0,
+    onToggle: (enabled) => {
+        if (enabled) {
+           map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
+        } else {
+            // Disable 3D mode
+            map.setTerrain(null);
+        }
+    }
+}));
+
+/*
+map.addControl(new maplibregl.ScaleControl({
+    position: 'bottom'
+}));*/
+
+map.addControl(new maplibregl.GeolocateControl({
+    positionOptions: {
+        enableHighAccuracy: true
+    },
+    trackUserLocation: true,
+    showUserHeading: true
+}));
+
+
 
 function setupLayerControls() {
     const layerControl = document.querySelector('.layer-control');
@@ -430,7 +435,7 @@ function setupLayerControls() {
 
                 // Handle terrain analysis layers
                 if (['normal-layer', 'slope-layer', 'aspect-layer'].includes(layerId)) {
-                    const newOpacity = isActive ? 0 : 0.85;
+                    const newOpacity = isActive ? 0 : 0.8;
                     map.setPaintProperty(layerId, 'raster-opacity', newOpacity);
                     
                     // If enabling one terrain analysis layer, disable others
@@ -725,7 +730,7 @@ map.on('load', async () => {
                 loadingScreen.classList.add('fade-out');
             }
         }
-    }, 3000);
+    }, 1000);
 
     // Handle signpost clicks
     map.on('click', async (e) => {
