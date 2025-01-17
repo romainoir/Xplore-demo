@@ -158,6 +158,12 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     return slopes;
 }
 
+function calculateSlopeMap(resampledDEM, width, height, zoom) {
+    // Use the long-distance version directly
+    const slopes = calculateLongDistanceSlope(resampledDEM, width, height, zoom);
+    return encodeSlopeMap(slopes);
+}
+
 function encodeSlopeMap(slopes) {
     const rgba = new Uint8ClampedArray(slopes.length * 4);
     
