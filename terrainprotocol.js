@@ -537,7 +537,7 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
 
     // Convert to PNG buffer
     const canvas = new OffscreenCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
-    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
     ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
 
     const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
