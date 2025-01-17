@@ -83,12 +83,10 @@ function tile2lat(y, z) {
 }
 
 function calculateZoomScale(zoom) {
-    // Base scale at zoom level 16 (typical reference zoom)
-    const baseZoom = 16;
-    const baseScale = 1.0;
-    
-    // Scale factor changes with zoom level
-    return baseScale * Math.pow(2, baseZoom - zoom);
+    // We should use the exact pixel to meter ratio at zoom level 16 as IGN
+    const metersPerPixelAtZoom16 = 2.0;  // We might need to verify this value
+    const metersPerPixel = metersPerPixelAtZoom16 * Math.pow(2, 16 - zoom);
+    return metersPerPixel;
 }
 
 function calculateGradients(heightmap, width, height, zoom) {
@@ -122,7 +120,6 @@ function calculateGradients(heightmap, width, height, zoom) {
     return gradients;
 }
 
-// New function specifically for slope calculations with longer sampling distance
 function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     const scale = calculateZoomScale(zoom);
     const slopes = new Float32Array(width * height);
@@ -131,27 +128,31 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     const heightMinus1 = height - 1;
     
     // IGN définition: pentes calculées sur une distance d'au moins 25 mètres
-    const baseDistanceMeters = 5; // exactement 25 mètres comme spécifié par IGN
+    const baseDistanceMeters = 5;
     const pixelsPerMeter = (zoom >= 16) ? 1 : Math.pow(2, zoom - 16);
     const samplingDistance = Math.max(1, Math.round(baseDistanceMeters * pixelsPerMeter));
     
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-            // Calculate sample points with larger distance
             const xPrev = Math.max(0, x - samplingDistance);
             const xNext = Math.min(widthMinus1, x + samplingDistance);
             const yPrev = Math.max(0, y - samplingDistance);
             const yNext = Math.min(heightMinus1, y + samplingDistance);
             
-            // Calculate gradients over 25m distance
-            const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
-                        (invScale / (xNext - xPrev));
+            // Calculate actual distances in meters
+            const dx = (xNext - xPrev) * scale;
+            const dy = (yNext - yPrev) * scale;
             
-            const dzdy = (heightmap[yNext * width + x] - heightmap[yPrev * width + x]) * 
-                        (invScale / (yNext - yPrev));
+            // Calculate elevation differences
+            const dz_dx = heightmap[y * width + xNext] - heightmap[y * width + xPrev];
+            const dz_dy = heightmap[yNext * width + x] - heightmap[yPrev * width + x];
             
-            // Calculate slope in degrees
-            slopes[y * width + x] = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * RAD_TO_DEG;
+            // Calculate slope using actual distances
+            const slope_x = dz_dx / dx;
+            const slope_y = dz_dy / dy;
+            
+            // Calculate total slope in degrees
+            slopes[y * width + x] = Math.atan(Math.sqrt(slope_x * slope_x + slope_y * slope_y)) * RAD_TO_DEG;
         }
     }
     
@@ -178,10 +179,10 @@ function encodeSlopeMap(slopes) {
     // Couleurs IGN Géoportail
     const colors = {
         TRANSPARENT: [0, 0, 0, 0],           // Invisible en dessous de 30°
-        YELLOW: [255, 255, 0, 255],         // 30-35°
-        ORANGE: [255, 165, 0, 255],         // 35-40°
-        RED: [255, 0, 0, 255],              // 40-45°
-        VIOLET: [148, 0, 211, 255]          // >45°
+        YELLOW: [226, 190, 27, 255],         // 30-35°
+        ORANGE: [216, 114, 27, 255],         // 35-40°
+        RED: [226, 27, 27, 255],              // 40-45°
+        VIOLET: [184, 130, 173, 255]          // >45°
     };
     
     for (let i = 0; i < slopes.length; i++) {
