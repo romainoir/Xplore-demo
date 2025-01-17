@@ -430,7 +430,7 @@ function setupLayerControls() {
 
                 // Handle terrain analysis layers
                 if (['normal-layer', 'slope-layer', 'aspect-layer'].includes(layerId)) {
-                    const newOpacity = isActive ? 0 : 1;
+                    const newOpacity = isActive ? 0 : 0.85;
                     map.setPaintProperty(layerId, 'raster-opacity', newOpacity);
                     
                     // If enabling one terrain analysis layer, disable others
