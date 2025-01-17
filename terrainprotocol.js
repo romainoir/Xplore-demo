@@ -130,9 +130,8 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     const widthMinus1 = width - 1;
     const heightMinus1 = height - 1;
     
-    // Calculate sampling distance based on zoom level and desired ground distance
-    // For a 25-meter sampling at zoom level 16
-    const baseDistanceMeters = 25; // meters
+    // IGN définition: pentes calculées sur une distance d'au moins 25 mètres
+    const baseDistanceMeters = 25; // exactement 25 mètres comme spécifié par IGN
     const pixelsPerMeter = (zoom >= 16) ? 1 : Math.pow(2, zoom - 16);
     const samplingDistance = Math.max(1, Math.round(baseDistanceMeters * pixelsPerMeter));
     
@@ -144,7 +143,7 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
             const yPrev = Math.max(0, y - samplingDistance);
             const yNext = Math.min(heightMinus1, y + samplingDistance);
             
-            // Calculate gradients over larger distance
+            // Calculate gradients over 25m distance
             const dzdx = (heightmap[y * width + xNext] - heightmap[y * width + xPrev]) * 
                         (invScale / (xNext - xPrev));
             
@@ -159,31 +158,24 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     return slopes;
 }
 
-function calculateSlopeMap(resampledDEM, width, height, zoom) {
-    // Use resampledDEM directly with the long-distance version
-    const slopes = calculateLongDistanceSlope(resampledDEM, width, height, zoom);
-    return encodeSlopeMap(slopes);
-}
-
 function encodeSlopeMap(slopes) {
     const rgba = new Uint8ClampedArray(slopes.length * 4);
     
-    // Adjusted thresholds for broader terrain analysis
+    // Seuils exacts IGN Géoportail
     const slopeThresholds = {
-        flat: 5,      // 0-5 degrees
-        gentle: 10,   // 5-10 degrees
-        moderate: 20, // 10-20 degrees
-        steep: 30,    // 20-30 degrees
-        verySteep: 45 // >30 degrees
+        visible: 30,    // Commencer à partir de 30°
+        yellow: 35,     // Jaune jusqu'à 35°
+        orange: 40,     // Orange jusqu'à 40°
+        red: 45         // Rouge jusqu'à 45°, violet au-delà
     };
     
+    // Couleurs IGN Géoportail
     const colors = {
-        TRANSPARENT: [0, 0, 0, 0],          // flat
-        GREEN: [76, 175, 80, 255],          // gentle
-        YELLOW: [255, 235, 59, 255],        // moderate
-        ORANGE: [255, 152, 0, 255],         // steep
-        RED: [244, 67, 54, 255],            // very steep
-        VIOLET: [156, 39, 176, 255]         // extreme
+        TRANSPARENT: [0, 0, 0, 0],           // Invisible en dessous de 30°
+        YELLOW: [255, 255, 0, 255],         // 30-35°
+        ORANGE: [255, 165, 0, 255],         // 35-40°
+        RED: [255, 0, 0, 255],              // 40-45°
+        VIOLET: [148, 0, 211, 255]          // >45°
     };
     
     for (let i = 0; i < slopes.length; i++) {
@@ -191,15 +183,13 @@ function encodeSlopeMap(slopes) {
         const slope = slopes[i];
         
         let color;
-        if (slope < slopeThresholds.flat) {
+        if (slope < slopeThresholds.visible) {
             color = colors.TRANSPARENT;
-        } else if (slope < slopeThresholds.gentle) {
-            color = colors.GREEN;
-        } else if (slope < slopeThresholds.moderate) {
+        } else if (slope < slopeThresholds.yellow) {
             color = colors.YELLOW;
-        } else if (slope < slopeThresholds.steep) {
+        } else if (slope < slopeThresholds.orange) {
             color = colors.ORANGE;
-        } else if (slope < slopeThresholds.verySteep) {
+        } else if (slope < slopeThresholds.red) {
             color = colors.RED;
         } else {
             color = colors.VIOLET;
@@ -213,7 +203,6 @@ function encodeSlopeMap(slopes) {
     
     return rgba;
 }
-
 function calculateNormalMap(gradients, width, height) {
     const normals = new Float32Array(width * height * 3);
     
