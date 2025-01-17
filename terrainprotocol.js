@@ -131,7 +131,7 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     const heightMinus1 = height - 1;
     
     // IGN définition: pentes calculées sur une distance d'au moins 25 mètres
-    const baseDistanceMeters = 25; // exactement 25 mètres comme spécifié par IGN
+    const baseDistanceMeters = 5; // exactement 25 mètres comme spécifié par IGN
     const pixelsPerMeter = (zoom >= 16) ? 1 : Math.pow(2, zoom - 16);
     const samplingDistance = Math.max(1, Math.round(baseDistanceMeters * pixelsPerMeter));
     
