@@ -159,9 +159,9 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     return slopes;
 }
 
-function calculateSlopeMap(gradients, width, height) {
-    // Replace this function with the long-distance version
-    const slopes = calculateLongDistanceSlope(heightmap, width, height, zoom);
+function calculateSlopeMap(resampledDEM, width, height, zoom) {
+    // Use resampledDEM directly with the long-distance version
+    const slopes = calculateLongDistanceSlope(resampledDEM, width, height, zoom);
     return encodeSlopeMap(slopes);
 }
 
