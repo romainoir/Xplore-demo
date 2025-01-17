@@ -126,9 +126,9 @@ const map = new maplibregl.Map({
             'sentinel2': {
                 type: 'raster',
                 tiles: [
-                    'https://sh.dataspace.copernicus.eu/ogc/wms/7e15b662-449e-44ff-9f1b-28386c82867c?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&TILED=true&WIDTH=1024&HEIGHT=1024&CRS=EPSG:3857&BBOX={bbox-epsg-3857}'
+                    'https://sh.dataspace.copernicus.eu/ogc/wms/7e15b662-449e-44ff-9f1b-28386c82867c?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&FORMAT=image/png&TRANSPARENT=true&LAYERS=TRUE_COLOR&TILED=true&WIDTH=256&HEIGHT=256&CRS=EPSG:3857&BBOX={bbox-epsg-3857}'
                 ],
-                tileSize: 1024,
+                tileSize: 256,
                 attribution: '© Copernicus'
             },
             'heatmap': {

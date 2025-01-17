@@ -84,7 +84,7 @@ function tile2lat(y, z) {
 
 function calculateZoomScale(zoom) {
     // We should use the exact pixel to meter ratio at zoom level 16 as IGN
-    const metersPerPixelAtZoom16 = 2.0;  // We might need to verify this value
+    const metersPerPixelAtZoom16 = 1.5;  // We might need to verify this value
     const metersPerPixel = metersPerPixelAtZoom16 * Math.pow(2, 16 - zoom);
     return metersPerPixel;
 }
@@ -128,7 +128,7 @@ function calculateLongDistanceSlope(heightmap, width, height, zoom) {
     const heightMinus1 = height - 1;
     
     // IGN définition: pentes calculées sur une distance d'au moins 25 mètres
-    const baseDistanceMeters = 5;
+    const baseDistanceMeters = 25;
     const pixelsPerMeter = (zoom >= 16) ? 1 : Math.pow(2, zoom - 16);
     const samplingDistance = Math.max(1, Math.round(baseDistanceMeters * pixelsPerMeter));
     

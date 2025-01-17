@@ -14,9 +14,9 @@ const layerStyles = {
         id: 'sentinel2-layer',
         type: 'raster',
         source: 'sentinel2',
-        layout: { visibility: 'none' },//will need to handle thta, temporary solution due to lack of credit
+        layout: { visibility: 'none' },
         paint: {
-            'raster-opacity': 0,
+            'raster-opacity': 1,
             'raster-contrast': 0.2,
             'raster-saturation': 0.1,
             'raster-resampling': 'linear',
