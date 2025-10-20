@@ -1,4 +1,4 @@
-import { GEOPORTAIL_CAPABILITIES_URL, buildGeoportailDemTileUrlRaw } from './geoportailConfig.js';
+import { getGeoportailCapabilitiesUrl, buildGeoportailDemTileUrlRaw } from './geoportailConfig.js';
 
 // Cache only raw DEM tiles
 
@@ -389,7 +389,7 @@ async function fetchCapabilities() {
         return capabilitiesQueue.enqueue('capabilities', async () => {
             if (!demCapabilities.has('WGS84G')) {  // Double-check after getting queue lock
                 try {
-                    const response = await fetch(GEOPORTAIL_CAPABILITIES_URL);
+                    const response = await fetch(getGeoportailCapabilitiesUrl());
                     if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
                     
                     const text = await response.text();

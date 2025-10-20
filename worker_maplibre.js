@@ -1,4 +1,4 @@
-import { GEOPORTAIL_CAPABILITIES_URL, buildGeoportailDemTileUrlRaw } from './geoportailConfig.js';
+import { getGeoportailCapabilitiesUrl, buildGeoportailDemTileUrlRaw } from './geoportailConfig.js';
 
 // worker_maplibre.js
 
@@ -14,7 +14,7 @@ class WMTSCapabilities {
     }
 
     async initialize() {
-        const response = await fetch(GEOPORTAIL_CAPABILITIES_URL);
+        const response = await fetch(getGeoportailCapabilitiesUrl());
         if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
         const text = await response.text();
 

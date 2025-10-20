@@ -1,4 +1,6 @@
 // worker_pool.js
+import { getGeoportailApiKey } from './geoportailConfig.js';
+
 export const CACHE_LIMITS = {
     DEM_TILE_CACHE_LIMIT: 6000,
     QUEUE_LIMIT: 200,
@@ -19,8 +21,16 @@ export class WorkerPool {
     }
 
     initialize() {
+        const apiKey = getGeoportailApiKey();
+
         for (let i = 0; i < this.maxWorkers; i++) {
-            const worker = new Worker('worker_maplibre.js', { type: 'module' });
+            const workerUrl = new URL('worker_maplibre.js', window.location.href);
+
+            if (apiKey) {
+                workerUrl.searchParams.set('geoportailKey', apiKey);
+            }
+
+            const worker = new Worker(workerUrl, { type: 'module' });
             this.workers.push(worker);
             this.busy.push(false);
             worker.onmessage = this.createMessageHandler(i);
