@@ -777,20 +777,9 @@ map.on('load', async () => {
             await initializeThunderforestLayers();
             console.debug('[Init] Thunderforest layers initialized');
 
-            const loadingScreen = document.getElementById('loading-screen');
-            if (loadingScreen) {
-                console.debug('[Init] Hiding loading screen');
-                loadingScreen.classList.add('fade-out');
-                setTimeout(() => loadingScreen.style.display = 'none', 500);
-            }
         } catch (error) {
             console.error('Initialization error:', error);
             console.debug('[Init] Initialization error encountered', error);
-            const loadingScreen = document.getElementById('loading-screen');
-            if (loadingScreen) {
-                loadingScreen.classList.add('fade-out');
-                setTimeout(() => loadingScreen.style.display = 'none', 500);
-            }
         }
     }, 1000);
 
