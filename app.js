@@ -175,7 +175,7 @@ const map = new maplibregl.Map({
             'heatmap': {
                 type: 'raster',
                 tiles: [
-                    'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19'
+                    'https://proxy.nakarte.me/https/content-a.strava.com/identified/globalheat/winter/hot/{z}/{x}/{y}.png'
                 ],
                 tileSize: 512,
                 maxzoom: 17,
