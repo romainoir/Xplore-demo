@@ -1,5 +1,5 @@
 import { processTile, clearTileCaches } from './demProcessor.js';
-import { Protocol as PMTilesProtocol } from 'https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.mjs';
+import { Protocol as PMTilesProtocol } from 'https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js';
 const SUPPORTS_WORKERS = typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
 const DEFAULT_MAX_WORKERS = 6;
 
