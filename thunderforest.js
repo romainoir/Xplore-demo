@@ -34,15 +34,44 @@ async function initializeThunderforestLayers() {
             maxzoom: 14
         });
 
-        // Wait for source to be loaded
+        // Wait for source to be loaded, but avoid hanging forever if the tiles fail
         await new Promise((resolve) => {
             const checkSource = () => {
                 if (map.isSourceLoaded('thunderforest-outdoors')) {
-                    resolve();
-                } else {
-                    map.once('sourcedata', checkSource);
+                    cleanup();
+                    resolve(true);
                 }
             };
+
+            const handleSourceData = (event) => {
+                if (event.sourceId === 'thunderforest-outdoors') {
+                    checkSource();
+                }
+            };
+
+            const handleError = (event) => {
+                if (event?.sourceId === 'thunderforest-outdoors') {
+                    console.warn('Thunderforest source failed to load:', event.error);
+                    cleanup();
+                    resolve(false);
+                }
+            };
+
+            const timeoutId = setTimeout(() => {
+                console.warn('Thunderforest source load timed out. Continuing without it.');
+                cleanup();
+                resolve(false);
+            }, 5000);
+
+            const cleanup = () => {
+                clearTimeout(timeoutId);
+                map.off('sourcedata', handleSourceData);
+                map.off('error', handleError);
+            };
+
+            map.on('sourcedata', handleSourceData);
+            map.on('error', handleError);
+
             checkSource();
         });
 
