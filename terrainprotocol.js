@@ -562,13 +562,70 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
         imageData = calculateElevationMap(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE);
     }
 
-    // Convert to PNG buffer
-    const canvas = new OffscreenCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
-    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
+    // Convert to PNG buffer with cross-browser canvas support
+    const canvasInfo = createCompatibleCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
+    const ctx = canvasInfo.context;
     ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
 
-    const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
-    return await blob.arrayBuffer();
+    return await canvasToArrayBuffer(canvasInfo.canvas);
+}
+
+function createCompatibleCanvas(width, height) {
+    if (typeof OffscreenCanvas !== 'undefined') {
+        const canvas = new OffscreenCanvas(width, height);
+        const context = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
+        if (!context) {
+            throw new Error('Unable to acquire OffscreenCanvas 2D context');
+        }
+        return { canvas, context };
+    }
+
+    if (typeof document !== 'undefined') {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Unable to acquire canvas 2D context');
+        }
+        return { canvas, context };
+    }
+
+    throw new Error('No canvas implementation available in this environment');
+}
+
+async function canvasToArrayBuffer(canvas) {
+    if (typeof canvas.convertToBlob === 'function') {
+        const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
+        return await blob.arrayBuffer();
+    }
+
+    if (typeof canvas.toBlob === 'function') {
+        const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob((result) => {
+                if (result) {
+                    resolve(result);
+                } else {
+                    reject(new Error('Canvas toBlob produced a null result'));
+                }
+            }, 'image/png', 1.0);
+        });
+        return await blob.arrayBuffer();
+    }
+
+    if (typeof canvas.toDataURL === 'function') {
+        const dataUrl = canvas.toDataURL('image/png', 1.0);
+        const base64Data = dataUrl.split(',')[1];
+        const binaryString = atob(base64Data);
+        const buffer = new ArrayBuffer(binaryString.length);
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return buffer;
+    }
+
+    throw new Error('Unable to export canvas content as ArrayBuffer');
 }
 
 export async function setupTerrainProtocol(maplibregl) {
