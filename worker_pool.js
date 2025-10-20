@@ -1,5 +1,4 @@
 // worker_pool.js
-
 export const CACHE_LIMITS = {
     DEM_TILE_CACHE_LIMIT: 6000,
     QUEUE_LIMIT: 200,
@@ -21,9 +20,7 @@ export class WorkerPool {
 
     initialize() {
         for (let i = 0; i < this.maxWorkers; i++) {
-            const workerUrl = new URL('worker_maplibre.js', window.location.href);
-
-            const worker = new Worker(workerUrl, { type: 'module' });
+            const worker = new Worker('worker_maplibre.js');
             this.workers.push(worker);
             this.busy.push(false);
             worker.onmessage = this.createMessageHandler(i);

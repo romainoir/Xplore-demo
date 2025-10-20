@@ -1,18 +1,3 @@
-const GEOPORTAIL_WMTS_BASE = 'https://data.geopf.fr/wmts';
-const GEOPORTAIL_CAPABILITIES_URL = `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities`;
-
-function getGeoportailCapabilitiesUrl() {
-    return GEOPORTAIL_CAPABILITIES_URL;
-}
-
-function buildGeoportailDemTileUrlRaw({
-    layer,
-    matrixSet = 'WGS84G',
-    format = 'image/x-bil;bits=32'
-}, { z, x, y }) {
-    return `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&TILEMATRIXSET=${matrixSet}&TILEMATRIX=${z}&TILEROW=${y}&TILECOL=${x}&FORMAT=${encodeURIComponent(format)}&STYLE=normal`;
-}
-
 // Cache only raw DEM tiles
 
 
@@ -353,9 +338,7 @@ async function getDEMTile(tx, ty, demZoom, demMatrix, retryCount = 3) {
 
     return demRequestQueue.enqueue(cacheKey, async () => {
         try {
-            const demUrl = buildGeoportailDemTileUrlRaw({
-                layer: 'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS'
-            }, { z: demZoom, x: tx, y: ty });
+            const demUrl = `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS&TILEMATRIXSET=WGS84G&TILEMATRIX=${demZoom}&TILEROW=${ty}&TILECOL=${tx}&FORMAT=image/x-bil;bits=32&STYLE=normal`;
             
             const response = await fetch(demUrl, {
                 headers: { 'Accept': '*/*' }
@@ -402,7 +385,7 @@ async function fetchCapabilities() {
         return capabilitiesQueue.enqueue('capabilities', async () => {
             if (!demCapabilities.has('WGS84G')) {  // Double-check after getting queue lock
                 try {
-                    const response = await fetch(getGeoportailCapabilitiesUrl());
+                    const response = await fetch('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities');
                     if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
                     
                     const text = await response.text();
@@ -579,74 +562,17 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
         imageData = calculateElevationMap(resampledDEM, OUTPUT_SIZE, OUTPUT_SIZE);
     }
 
-    // Convert to PNG buffer with cross-browser canvas support
-    const canvasInfo = createCompatibleCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
-    const ctx = canvasInfo.context;
+    // Convert to PNG buffer
+    const canvas = new OffscreenCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
+    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
     ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
 
-    return await canvasToArrayBuffer(canvasInfo.canvas);
-}
-
-function createCompatibleCanvas(width, height) {
-    if (typeof OffscreenCanvas !== 'undefined') {
-        const canvas = new OffscreenCanvas(width, height);
-        const context = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
-        if (!context) {
-            throw new Error('Unable to acquire OffscreenCanvas 2D context');
-        }
-        return { canvas, context };
-    }
-
-    if (typeof document !== 'undefined') {
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext('2d');
-        if (!context) {
-            throw new Error('Unable to acquire canvas 2D context');
-        }
-        return { canvas, context };
-    }
-
-    throw new Error('No canvas implementation available in this environment');
-}
-
-async function canvasToArrayBuffer(canvas) {
-    if (typeof canvas.convertToBlob === 'function') {
-        const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
-        return await blob.arrayBuffer();
-    }
-
-    if (typeof canvas.toBlob === 'function') {
-        const blob = await new Promise((resolve, reject) => {
-            canvas.toBlob((result) => {
-                if (result) {
-                    resolve(result);
-                } else {
-                    reject(new Error('Canvas toBlob produced a null result'));
-                }
-            }, 'image/png', 1.0);
-        });
-        return await blob.arrayBuffer();
-    }
-
-    if (typeof canvas.toDataURL === 'function') {
-        const dataUrl = canvas.toDataURL('image/png', 1.0);
-        const base64Data = dataUrl.split(',')[1];
-        const binaryString = atob(base64Data);
-        const buffer = new ArrayBuffer(binaryString.length);
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return buffer;
-    }
-
-    throw new Error('Unable to export canvas content as ArrayBuffer');
+    const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
+    return await blob.arrayBuffer();
 }
 
 export async function setupTerrainProtocol(maplibregl) {
-    const handler = async (params) => {
+    maplibregl.addProtocol('customdem', async (params) => {
         try {
             const match = params.url.match(/^customdem:\/\/(\d+)\/(\d+)\/(\d+)(\/.*)?$/);
             if (!match) {
@@ -669,57 +595,9 @@ export async function setupTerrainProtocol(maplibregl) {
             console.error('DEM map error:', error);
             throw error;
         }
-    };
+    });
 
-    if (typeof maplibregl?.addProtocol === 'function') {
-        maplibregl.addProtocol('customdem', handler);
-
-        return {
-            cleanup: () => {
-                if (typeof maplibregl.removeProtocol === 'function') {
-                    maplibregl.removeProtocol('customdem');
-                }
-                demCache.clear();
-                demCapabilities.clear();
-            }
-        };
-    }
-
-    if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
-        const originalFetch = window.fetch.bind(window);
-
-        window.fetch = async (input, init) => {
-            const isRequest = typeof Request !== 'undefined' && input instanceof Request;
-            const requestUrl = typeof input === 'string'
-                ? input
-                : (isRequest ? input.url : input?.url);
-
-            if (typeof requestUrl === 'string' && requestUrl.startsWith('customdem://')) {
-                const signal = init?.signal ?? (isRequest ? input.signal : undefined);
-                if (signal?.aborted) {
-                    throw signal.reason ?? new DOMException('Aborted', 'AbortError');
-                }
-
-                const { data } = await handler({ url: requestUrl });
-                return new Response(data, {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/octet-stream' }
-                });
-            }
-
-            return originalFetch(input, init);
-        };
-
-        return {
-            cleanup: () => {
-                window.fetch = originalFetch;
-                demCache.clear();
-                demCapabilities.clear();
-            }
-        };
-    }
-
-    console.error('No protocol support available for custom DEM tiles.');
+    // Clean up cache when map is removed
     return {
         cleanup: () => {
             demCache.clear();

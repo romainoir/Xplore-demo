@@ -134,7 +134,7 @@ const map = new maplibregl.Map({
             'orthophotos': {
                 type: 'raster',
                 tiles: [
-                    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=HR.ORTHOIMAGERY.ORTHOPHOTOS&' +
+                    'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=HR.ORTHOIMAGERY.ORTHOPHOTOS&' +
                     'TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
                 ],
                 tileSize: 256,
@@ -145,7 +145,7 @@ const map = new maplibregl.Map({
             'planIGN': {
                 type: 'raster',
                 tiles: [
-                    'https://proxy.nakarte.me/https/content-a.strava.com/identified/globalheat/winter/hot/{z}/{x}/{y}.png'
+                    'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19&Key-Pair-Id=&Signature=&Policy='
                 ],
                 tileSize: 256,
                 maxzoom: 16,

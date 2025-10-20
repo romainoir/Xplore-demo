@@ -76,14 +76,6 @@ const layerStyles = {
         maxzoom: 19,
         layout: { visibility: 'visible' },
     },
-    osmLayer: {
-        id: 'osm-layer',
-        type: 'raster',
-        source: 'osm',
-        minzoom: 0,
-        maxzoom: 19,
-        layout: { visibility: 'none' }
-    },
     planIGNLayer: {
         'id': 'planIGN-layer',
         'type': 'fill',
@@ -150,7 +142,7 @@ const layerStyles = {
     hillshadeLayer: {
         id: 'hillshade-layer',
         type: 'hillshade',
-        source: 'custom-dem-hillshade',
+        source: 'custom-dem',
         layout: { visibility: 'visible' },
         paint: {
             'hillshade-exaggeration': 0.3,
@@ -639,17 +631,7 @@ export function addLayersToMap() {
             key !== 'paths' &&
             key !== 'pathsOutline' &&
             key !== 'pathsHitArea') {
-            const layerDefinition = layerStyles[key];
-
-            if (!layerDefinition?.id) {
-                continue;
-            }
-
-            if (map.getLayer(layerDefinition.id)) {
-                continue;
-            }
-
-            map.addLayer(layerDefinition);
+            map.addLayer(layerStyles[key]);
         }
     }
 }

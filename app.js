@@ -6,70 +6,6 @@ import { layerStyles, addLayersToMap } from './layers.js';
 import { DirectionsManager } from './directions.js';
 import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the function
 
-const GEOPORTAIL_BASE = 'https://data.geopf.fr';
-const GEOPORTAIL_WMTS_BASE = `${GEOPORTAIL_BASE}/wmts`;
-const GEOPORTAIL_TMS_BASE = `${GEOPORTAIL_BASE}/tms/1.0.0`;
-
-function buildGeoportailTileUrl({
-    layer,
-    style = 'normal',
-    format = 'image/png',
-    matrixSet = 'PM',
-    extraParams = ''
-}) {
-    const params = new URLSearchParams({
-        SERVICE: 'WMTS',
-        REQUEST: 'GetTile',
-        VERSION: '1.0.0',
-        LAYER: layer,
-        STYLE: style,
-        FORMAT: format,
-        TILEMATRIXSET: matrixSet,
-        TILEMATRIX: '{z}',
-        TILEROW: '{y}',
-        TILECOL: '{x}'
-    });
-
-    if (extraParams) {
-        new URLSearchParams(extraParams).forEach((value, key) => {
-            params.set(key, value);
-        });
-    }
-
-    const query = params
-        .toString()
-        .replace(/%7B/gi, '{')
-        .replace(/%7D/gi, '}');
-
-    return `${GEOPORTAIL_WMTS_BASE}?${query}`;
-}
-
-function buildGeoportailTmsPath(path) {
-    return `${GEOPORTAIL_TMS_BASE}/${path}`;
-}
-
-console.debug('[App] Script evaluation started');
-
-// Basic runtime diagnostics to ensure the DOM and required containers exist
-if (document.readyState === 'loading') {
-    console.debug('[App] Document still loading, waiting for DOMContentLoaded');
-    document.addEventListener('DOMContentLoaded', () => {
-        console.debug('[App] DOMContentLoaded fired');
-    }, { once: true });
-} else {
-    console.debug('[App] Document already loaded');
-}
-
-const maplibreAvailable = typeof maplibregl !== 'undefined';
-console.debug('[App] MapLibre global available', maplibreAvailable);
-
-const mapContainer = document.getElementById('map');
-const hasMapContainer = Boolean(mapContainer);
-console.debug('[App] Map container present', hasMapContainer);
-if (!hasMapContainer) {
-    console.error('[App] Map container with id="map" not found in DOM');
-}
-
 
 // Initialize DEM source
 const demSource = new mlcontour.DemSource({
@@ -99,7 +35,6 @@ function throttle(func, limit) {
 let directionsManager;
 
 // Initialize MapLibre Map
-console.debug('[App] Creating MapLibre map instance');
 const map = new maplibregl.Map({
     container: 'map',
     canvasContextAttributes: {
@@ -119,19 +54,12 @@ const map = new maplibregl.Map({
             position: [100, 90, 5]
         },
         sources: {
-           'custom-dem-hillshade': { // DEM for hillshade rendering
+           'custom-dem': { // DEM
                   type: 'raster-dem',
                   encoding: 'mapbox',
                   tiles: ['customdem://{z}/{x}/{y}'], // this is the custom protocol for DEM
                    tileSize: 256,
                    maxzoom: 17
-                },
-           'custom-dem-terrain': { // DEM dedicated to 3D terrain
-                  type: 'raster-dem',
-                  encoding: 'mapbox',
-                  tiles: ['customdem://{z}/{x}/{y}'],
-                  tileSize: 256,
-                  maxzoom: 17
                 },
             'custom-normal': {
               type: 'raster',
@@ -185,19 +113,10 @@ const map = new maplibregl.Map({
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
             },
-            'osm': {
-                type: 'raster',
-                tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                tileSize: 256,
-                attribution: '© OpenStreetMap contributors'
-            },
             'orthophotos': {
                 type: 'raster',
                 tiles: [
-                    buildGeoportailTileUrl({
-                        layer: 'ORTHOIMAGERY.ORTHOPHOTOS',
-                        format: 'image/jpeg'
-                    })
+                    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
                 ],
                 tileSize: 256,
                 minzoom: 0,
@@ -215,7 +134,7 @@ const map = new maplibregl.Map({
             'heatmap': {
                 type: 'raster',
                 tiles: [
-                    'https://proxy.nakarte.me/https/content-a.strava.com/identified/globalheat/winter/hot/{z}/{x}/{y}.png'
+                    'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19'
                 ],
                 tileSize: 512,
                 maxzoom: 17,
@@ -224,9 +143,7 @@ const map = new maplibregl.Map({
             'Slope': {
                 type: 'raster',
                 tiles: [
-                    buildGeoportailTileUrl({
-                        layer: 'GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN'
-                    })
+                    'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
                 ],
                 tileSize: 256,
                 attribution: '© Data from Geoportail'
@@ -257,14 +174,13 @@ const map = new maplibregl.Map({
             },
             'plan-ign-vector': {
                 type: 'vector',
-                tiles: [buildGeoportailTmsPath('PLAN.IGN/{z}/{x}/{y}.pbf')],
+                tiles: ['https://data.geopf.fr/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf'],
                 maxzoom: 17,
                 attribution: '© Data from Geoportail'
             }
         },
          layers: [
             layerStyles.baseColor,
-            layerStyles.osmLayer,
             layerStyles.orthophotosLayer,
             layerStyles.OpentopoLayer,
             layerStyles.sentinel2Layer,
@@ -290,7 +206,7 @@ const map = new maplibregl.Map({
             layerStyles.thunderforestLakes,
         ],
         terrain: {
-           source: 'custom-dem-terrain',
+           source: 'custom-dem',
             exaggeration: 1.0
         },
         sky: {
@@ -323,7 +239,7 @@ const map = new maplibregl.Map({
 });
 
 // Layer management
-let currentTerrain = 'custom-dem-terrain';
+let currentTerrain = 'custom-dem';
 let planIGNLayers = [];
 
 
@@ -331,144 +247,12 @@ let planIGNLayers = [];
 demSource.setupMaplibre(maplibregl);
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 
-let mapInitializationTrigger = null;
-
-async function initializeMapFeatures(trigger) {
-    if (mapInitializationTrigger) {
-        console.debug(`[Init] Initialization already completed (triggered by ${mapInitializationTrigger})`);
-        return;
-    }
-
-    mapInitializationTrigger = trigger;
-    console.debug(`[Init] Running map initialization (triggered by ${trigger})`);
-
-    try {
-        const directionsToggle = document.querySelector('.directions-toggle');
-        const directionsControl = document.querySelector('.directions-control');
-        const transportModes = document.querySelectorAll('.transport-mode');
-        const swapButton = document.getElementById('swap-points');
-        const clearButton = document.getElementById('clear-route');
-        const routeStats = document.getElementById('route-stats');
-        const elevationChart = document.getElementById('elevation-chart');
-
-        console.debug('[Directions] Elements found', {
-            directionsToggle: Boolean(directionsToggle),
-            directionsControl: Boolean(directionsControl),
-            transportModes: transportModes?.length,
-            swapButton: Boolean(swapButton),
-            clearButton: Boolean(clearButton),
-            routeStats: Boolean(routeStats),
-            elevationChart: Boolean(elevationChart)
-        });
-
-        directionsManager = new DirectionsManager(map, [
-            directionsToggle,
-            directionsControl,
-            transportModes,
-            swapButton,
-            clearButton,
-            routeStats,
-            elevationChart
-        ]);
-
-        setTimeout(async () => {
-            try {
-                console.debug('[Init] Starting delayed initialization block');
-                addLayersToMap();
-                console.debug('[Init] Layers added to map');
-                setupLayerControls();
-                console.debug('[Init] Layer controls setup complete');
-                setupMenuToggle();
-                console.debug('[Init] Menu toggle setup complete');
-                setupWikimediaEventListeners();
-                console.debug('[Init] Wikimedia event listeners bound');
-                setupRefugesEventListeners();
-                console.debug('[Init] Refuges event listeners bound');
-
-                map.on('moveend', throttle(() => {
-                    console.debug('[Map] Moveend triggered - fetching data');
-                    fetchPointsOfInterest(map);
-                    fetchWikimediaPhotos();
-                }, THROTTLE_DELAY));
-
-                await initializeThunderforestLayers();
-                console.debug('[Init] Thunderforest layers initialized');
-            } catch (error) {
-                console.error('Initialization error:', error);
-                console.debug('[Init] Initialization error encountered', error);
-            }
-        }, 1000);
-
-        map.on('click', async (e) => {
-            const features = map.queryRenderedFeatures(e.point, { layers: ['poisth'] });
-            if (features.length > 0 &&
-                features[0].properties.feature === 'guidepost' &&
-                features[0].properties.information === 'guidepost') {
-
-                const [lon, lat] = features[0].geometry.coordinates;
-                try {
-                    console.debug('[Signpost] Feature clicked', features[0]);
-                    const query = getOverpassQuery(lat, lon);
-                    console.debug('[Signpost] Overpass query generated', query);
-                    const response = await fetch('https://overpass-api.de/api/interpreter', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'data=' + encodeURIComponent(query)
-                    });
-
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-                    const data = await response.json();
-                    console.debug('[Signpost] Overpass data received', data);
-                    osmCache.set(features[0].properties.id, data);
-                    processOsmData(data, lon, lat, features[0]);
-                } catch (error) {
-                    console.error('Error querying OSM:', error);
-                    console.debug('[Signpost] Error detail', error);
-                    new maplibregl.Popup()
-                        .setLngLat([lon, lat])
-                        .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
-                        .addTo(map);
-                }
-            }
-        });
-    } catch (error) {
-        console.error('Failed to run map initialization:', error);
-        mapInitializationTrigger = null;
-    }
-}
-
-const triggerInitialization = (eventName) => {
-    initializeMapFeatures(eventName).catch((error) => {
-        console.error('Unhandled initialization error:', error);
-    });
-};
-
-map.once('style.load', () => {
-    console.debug('[Map] style.load event fired');
-    triggerInitialization('style.load');
-});
-
-map.once('render', () => {
-    console.debug('[Map] First render completed');
-});
-
-map.once('idle', () => {
-    console.debug('[Map] Idle event reached (initial load complete)');
-});
-
-map.on('error', (event) => {
-    console.error('[Map] Error event received', event?.error || event);
-});
-
 const geocoderApi = {
     forwardGeocode: async (config) => {
         const features = [];
         try {
-            console.debug('[Geocoder] Forward geocode request', config?.query);
             const request = `https://nominatim.openstreetmap.org/search?q=${config.query}&format=geojson&polygon_geojson=1&addressdetails=1`;
             const response = await fetch(request);
-            console.debug('[Geocoder] Response status', response.status);
             const geojson = await response.json();
             for (const feature of geojson.features) {
                 const center = [
@@ -496,38 +280,14 @@ const geocoderApi = {
     }
 };
 
-const geocoderControl = new MaplibreGeocoder(geocoderApi, {
-    maplibregl,
-    marker: true,
-    showResultsWhileTyping: true,
-    position: 'top-left'
-});
-
-map.addControl(geocoderControl);
-
-function ensureGeocoderInputHasIdentifiers() {
-    const geocoderInput = document.querySelector('.maplibregl-ctrl-geocoder input[type="text"]');
-    if (!geocoderInput) {
-        console.debug('[Geocoder] Input element not found yet');
-        return;
-    }
-
-    if (!geocoderInput.id) {
-        geocoderInput.id = 'map-search-input';
-    }
-
-    if (!geocoderInput.name) {
-        geocoderInput.setAttribute('name', 'map-search');
-    }
-
-    if (!geocoderInput.getAttribute('aria-label')) {
-        geocoderInput.setAttribute('aria-label', 'Search for a location');
-    }
-}
-
-ensureGeocoderInputHasIdentifiers();
-requestAnimationFrame(ensureGeocoderInputHasIdentifiers);
-map.on('load', ensureGeocoderInputHasIdentifiers);
+map.addControl(
+    new MaplibreGeocoder(geocoderApi, {
+        maplibregl,
+        marker: true,
+        showResultsWhileTyping: true,
+        position: 'top-left'
+    })
+);
 
 map.addControl(new maplibregl.NavigationControl({
     showCompass: true,
@@ -537,11 +297,11 @@ map.addControl(new maplibregl.NavigationControl({
 map.addControl(new maplibregl.GlobeControl());
 
 map.addControl(new maplibregl.TerrainControl({
-    source: 'custom-dem-terrain',
+    source: 'custom-dem',
     exaggeration: 1.0,
     onToggle: (enabled) => {
         if (enabled) {
-           map.setTerrain({ source: 'custom-dem-terrain', exaggeration: 1.0 });
+           map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
         } else {
             // Disable 3D mode
             map.setTerrain(null);
@@ -566,11 +326,6 @@ map.addControl(new maplibregl.GeolocateControl({
 
 function setupLayerControls() {
     const layerControl = document.querySelector('.layer-control');
-    console.debug('[Layers] Initializing layer controls', Boolean(layerControl));
-    if (!layerControl) {
-        console.error('[Layers] Layer control container not found in DOM');
-        return;
-    }
     const tabButtons = layerControl.querySelectorAll('.tab-button');
     const tabContents = layerControl.querySelectorAll('.tab-content');
     const layerToggleButtons = layerControl.querySelectorAll('.layer-toggle-button');
@@ -647,11 +402,10 @@ function setupLayerControls() {
     layerOptions.forEach(option => {
         option.addEventListener('click', (e) => {
             const layerId = e.currentTarget.dataset.layer;
-            console.debug('[Layers] Option toggled', layerId);
             
             // Handle basemaps and hillshade
             if (['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
-                const basemapOptions = Array.from(layerOptions).filter(opt =>
+                const basemapOptions = Array.from(layerOptions).filter(opt => 
                     ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'].includes(opt.dataset.layer)
                 );
 
@@ -724,7 +478,6 @@ function setupLayerControls() {
 
 async function loadPlanIGNLayers() {
     try {
-        console.debug('[PlanIGN] Fetching layer style');
         const response = await fetch(
             'https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/standard.json'
         );
@@ -732,7 +485,6 @@ async function loadPlanIGNLayers() {
             throw new Error(`Failed to fetch standard.json: ${response.statusText}`);
         }
         const styleJson = await response.json();
-        console.debug('[PlanIGN] Style fetched successfully');
 
         if (planIGNLayers.length > 0) {
             planIGNLayers.forEach(layer => {
@@ -849,7 +601,7 @@ function updateBasemapVisibility(selectedId = null) {
     basemaps.forEach(id => {
         map.setLayoutProperty(id, 'visibility', 'none');
     });
-
+    
     if (selectedId) {
         map.setLayoutProperty(selectedId, 'visibility', 'visible');
         if (selectedId === 'planIGN-layer') {
@@ -861,7 +613,6 @@ function updateBasemapVisibility(selectedId = null) {
             removeOpenTopoLayers();
         }
     } else {
-        map.setLayoutProperty('orthophotos-layer', 'visibility', 'visible');
         removePlanIGNLayers();
         removeOpenTopoLayers();
     }
@@ -908,14 +659,6 @@ function setupSentinel2Controls(layerControl) {
 function setupMenuToggle() {
     const menuToggle = document.querySelector('.menu-toggle');
     const layerControl = document.querySelector('.layer-control');
-    console.debug('[Menu] Setup toggle', Boolean(menuToggle), Boolean(layerControl));
-    if (!menuToggle || !layerControl) {
-        console.error('[Menu] Required menu toggle elements missing', {
-            hasMenuToggle: Boolean(menuToggle),
-            hasLayerControl: Boolean(layerControl)
-        });
-        return;
-    }
     let isMenuVisible = false;
 
     layerControl.classList.remove('visible');
@@ -941,9 +684,84 @@ function setupMenuToggle() {
 }
 
 // Map initialization and event handlers
-map.on('load', () => {
-    console.debug('[Map] Load event fired');
-    triggerInitialization('load');
+map.on('load', async () => {
+    const directionsToggle = document.querySelector('.directions-toggle');
+    const directionsControl = document.querySelector('.directions-control');
+    const transportModes = document.querySelectorAll('.transport-mode');
+    const swapButton = document.getElementById('swap-points');
+    const clearButton = document.getElementById('clear-route');
+    const routeStats = document.getElementById('route-stats');
+    const elevationChart = document.getElementById('elevation-chart');
+
+    const directionsManager = new DirectionsManager(map, [
+        directionsToggle,
+        directionsControl,
+        transportModes,
+        swapButton,
+        clearButton,
+        routeStats,
+        elevationChart
+    ]);
+    
+    setTimeout(async () => {
+        try {
+            addLayersToMap();
+            setupLayerControls();
+            setupMenuToggle();
+            setupWikimediaEventListeners();
+            setupRefugesEventListeners();
+
+            map.on('moveend', throttle(() => {
+                fetchPointsOfInterest(map);
+                fetchWikimediaPhotos();
+            }, THROTTLE_DELAY));
+            
+            await initializeThunderforestLayers();
+
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => loadingScreen.style.display = 'none', 100);
+            }
+        } catch (error) {
+            console.error('Initialization error:', error);
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('fade-out');
+            }
+        }
+    }, 100);
+
+    // Handle signpost clicks
+    map.on('click', async (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['poisth'] });
+        if (features.length > 0 &&
+            features[0].properties.feature === 'guidepost' &&
+            features[0].properties.information === 'guidepost') {
+
+            const [lon, lat] = features[0].geometry.coordinates;
+            try {
+                const query = getOverpassQuery(lat, lon);
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'data=' + encodeURIComponent(query)
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const data = await response.json();
+                osmCache.set(features[0].properties.id, data);
+                processOsmData(data, lon, lat, features[0]);
+            } catch (error) {
+                console.error('Error querying OSM:', error);
+                new maplibregl.Popup()
+                    .setLngLat([lon, lat])
+                    .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
+                    .addTo(map);
+            }
+        }
+    });
 });
 
 

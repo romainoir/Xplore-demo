@@ -1,18 +1,3 @@
-const GEOPORTAIL_WMTS_BASE = 'https://data.geopf.fr/wmts';
-const GEOPORTAIL_CAPABILITIES_URL = `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities`;
-
-function getGeoportailCapabilitiesUrl() {
-    return GEOPORTAIL_CAPABILITIES_URL;
-}
-
-function buildGeoportailDemTileUrlRaw({
-    layer,
-    matrixSet = 'WGS84G',
-    format = 'image/x-bil;bits=32'
-}, { z, x, y }) {
-    return `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&TILEMATRIXSET=${matrixSet}&TILEMATRIX=${z}&TILEROW=${y}&TILECOL=${x}&FORMAT=${encodeURIComponent(format)}&STYLE=normal`;
-}
-
 // worker_maplibre.js
 
 function formatTimeLog(start, tileKey, priority) {
@@ -27,7 +12,8 @@ class WMTSCapabilities {
     }
 
     async initialize() {
-        const response = await fetch(getGeoportailCapabilitiesUrl());
+        const url = 'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities';
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
         const text = await response.text();
 
@@ -154,9 +140,7 @@ async function getDEMTile(tx, ty, demZoom, demMatrix) {
     } else {
         try {
             // Fetch the DEM tile
-            const demUrl = buildGeoportailDemTileUrlRaw({
-                layer: 'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS'
-            }, { z: demZoom, x: tx, y: ty });
+            const demUrl = `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS&TILEMATRIXSET=WGS84G&TILEMATRIX=${demZoom}&TILEROW=${ty}&TILECOL=${tx}&FORMAT=image/x-bil;bits=32&STYLE=normal`;
 
             const response = await fetch(demUrl);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
