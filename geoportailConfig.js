@@ -12,7 +12,7 @@ function resolveGeoportailApiKey() {
 
 export const geoportailApiKey = resolveGeoportailApiKey();
 
-const GEOPORTAIL_BASE = `https://wxs.ign.fr/${geoportailApiKey}/geoportail`;
+const GEOPORTAIL_BASE = `https://data.geopf.fr/${geoportailApiKey}`;
 export const GEOPORTAIL_WMTS_BASE = `${GEOPORTAIL_BASE}/wmts`;
 export const GEOPORTAIL_TMS_BASE = `${GEOPORTAIL_BASE}/tms/1.0.0`;
 export const GEOPORTAIL_CAPABILITIES_URL = `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities`;
