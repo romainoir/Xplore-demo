@@ -698,6 +698,14 @@ function setupSentinel2Controls(layerControl) {
 function setupMenuToggle() {
     const menuToggle = document.querySelector('.menu-toggle');
     const layerControl = document.querySelector('.layer-control');
+    if (!menuToggle || !layerControl) {
+        console.warn('[Menu] Toggle setup skipped - missing required elements', {
+            menuToggle: Boolean(menuToggle),
+            layerControl: Boolean(layerControl)
+        });
+        return false;
+    }
+
     console.debug('[Menu] Setup toggle', Boolean(menuToggle), Boolean(layerControl));
     let isMenuVisible = false;
 
@@ -722,6 +730,8 @@ function setupMenuToggle() {
     layerControl.addEventListener('click', (e) => {
         e.stopPropagation();
     });
+
+    return true;
 }
 
 // Map initialization and event handlers
@@ -756,14 +766,14 @@ map.on('load', async () => {
     ]);
 
     setTimeout(async () => {
+        const menuSetupComplete = setupMenuToggle();
+        console.debug('[Init] Menu toggle setup attempted', { menuSetupComplete });
         try {
             console.debug('[Init] Starting delayed initialization block');
             addLayersToMap();
             console.debug('[Init] Layers added to map');
             setupLayerControls();
             console.debug('[Init] Layer controls setup complete');
-            setupMenuToggle();
-            console.debug('[Init] Menu toggle setup complete');
             setupWikimediaEventListeners();
             console.debug('[Init] Wikimedia event listeners bound');
             setupRefugesEventListeners();
