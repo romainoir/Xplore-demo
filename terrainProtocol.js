@@ -1,4 +1,17 @@
-import { GEOPORTAIL_CAPABILITIES_URL, buildGeoportailDemTileUrlRaw } from './geoportailConfig.js';
+const GEOPORTAIL_WMTS_BASE = 'https://data.geopf.fr/wmts';
+const GEOPORTAIL_CAPABILITIES_URL = `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities`;
+
+function getGeoportailCapabilitiesUrl() {
+    return GEOPORTAIL_CAPABILITIES_URL;
+}
+
+function buildGeoportailDemTileUrlRaw({
+    layer,
+    matrixSet = 'WGS84G',
+    format = 'image/x-bil;bits=32'
+}, { z, x, y }) {
+    return `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&TILEMATRIXSET=${matrixSet}&TILEMATRIX=${z}&TILEROW=${y}&TILECOL=${x}&FORMAT=${encodeURIComponent(format)}&STYLE=normal`;
+}
 
 // Cache only raw DEM tiles
 class DEMCache {
@@ -509,7 +522,7 @@ async function fetchCapabilities() {
         return capabilitiesQueue.enqueue('capabilities', async () => {
             if (!demCapabilities.has('WGS84G')) {  // Double-check after getting queue lock
                 try {
-                    const response = await fetch(GEOPORTAIL_CAPABILITIES_URL);
+                    const response = await fetch(getGeoportailCapabilitiesUrl());
                     if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
                     
                     const text = await response.text();
