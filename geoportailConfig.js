@@ -29,7 +29,12 @@ export function buildGeoportailTileUrl({
         });
     }
 
-    return `${GEOPORTAIL_WMTS_BASE}?${params.toString()}`;
+    const query = params
+        .toString()
+        .replace(/%7B/gi, '{')
+        .replace(/%7D/gi, '}');
+
+    return `${GEOPORTAIL_WMTS_BASE}?${query}`;
 }
 
 export function buildGeoportailDemTileUrl({
