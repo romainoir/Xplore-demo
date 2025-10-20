@@ -74,7 +74,7 @@ const layerStyles = {
         source: 'orthophotos',
         minzoom: 0,
         maxzoom: 19,
-        layout: { visibility: 'none' },
+        layout: { visibility: 'visible' },
     },
     osmLayer: {
         id: 'osm-layer',
@@ -82,7 +82,7 @@ const layerStyles = {
         source: 'osm',
         minzoom: 0,
         maxzoom: 19,
-        layout: { visibility: 'visible' }
+        layout: { visibility: 'none' }
     },
     planIGNLayer: {
         'id': 'planIGN-layer',
