@@ -629,7 +629,7 @@ async function canvasToArrayBuffer(canvas) {
 }
 
 export async function setupTerrainProtocol(maplibregl) {
-    maplibregl.addProtocol('customdem', async (params) => {
+    const handler = async (params) => {
         try {
             const match = params.url.match(/^customdem:\/\/(\d+)\/(\d+)\/(\d+)(\/.*)?$/);
             if (!match) {
@@ -652,9 +652,57 @@ export async function setupTerrainProtocol(maplibregl) {
             console.error('DEM map error:', error);
             throw error;
         }
-    });
+    };
 
-    // Clean up cache when map is removed
+    if (typeof maplibregl?.addProtocol === 'function') {
+        maplibregl.addProtocol('customdem', handler);
+
+        return {
+            cleanup: () => {
+                if (typeof maplibregl.removeProtocol === 'function') {
+                    maplibregl.removeProtocol('customdem');
+                }
+                demCache.clear();
+                demCapabilities.clear();
+            }
+        };
+    }
+
+    if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+        const originalFetch = window.fetch.bind(window);
+
+        window.fetch = async (input, init) => {
+            const isRequest = typeof Request !== 'undefined' && input instanceof Request;
+            const requestUrl = typeof input === 'string'
+                ? input
+                : (isRequest ? input.url : input?.url);
+
+            if (typeof requestUrl === 'string' && requestUrl.startsWith('customdem://')) {
+                const signal = init?.signal ?? (isRequest ? input.signal : undefined);
+                if (signal?.aborted) {
+                    throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+                }
+
+                const { data } = await handler({ url: requestUrl });
+                return new Response(data, {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/octet-stream' }
+                });
+            }
+
+            return originalFetch(input, init);
+        };
+
+        return {
+            cleanup: () => {
+                window.fetch = originalFetch;
+                demCache.clear();
+                demCapabilities.clear();
+            }
+        };
+    }
+
+    console.error('No protocol support available for custom DEM tiles.');
     return {
         cleanup: () => {
             demCache.clear();
