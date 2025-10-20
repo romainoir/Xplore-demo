@@ -20,7 +20,7 @@ export class WorkerPool {
 
     initialize() {
         for (let i = 0; i < this.maxWorkers; i++) {
-            const worker = new Worker('worker_maplibre.js');
+            const worker = new Worker('worker_maplibre.js', { type: 'module' });
             this.workers.push(worker);
             this.busy.push(false);
             worker.onmessage = this.createMessageHandler(i);

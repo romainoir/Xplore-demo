@@ -5,6 +5,7 @@ import { processOsmData, getOverpassQuery } from './signpost.js';
 import { layerStyles, addLayersToMap } from './layers.js';
 import { DirectionsManager } from './directions.js';
 import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the function
+import { buildGeoportailTileUrl, buildGeoportailTmsPath } from './geoportailConfig.js';
 
 console.debug('[App] Script evaluation started');
 
@@ -153,7 +154,10 @@ const map = new maplibregl.Map({
                 type: 'raster',
                 scheme: 'tms',
                 tiles: [
-                    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
+                    buildGeoportailTileUrl({
+                        layer: 'ORTHOIMAGERY.ORTHOPHOTOS',
+                        format: 'image/jpeg'
+                    })
                 ],
                 tileSize: 256,
                 minzoom: 0,
@@ -180,7 +184,9 @@ const map = new maplibregl.Map({
             'Slope': {
                 type: 'raster',
                 tiles: [
-                    'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'
+                    buildGeoportailTileUrl({
+                        layer: 'GEOGRAPHICALGRIDSYSTEMS.SLOPES.MOUNTAIN'
+                    })
                 ],
                 tileSize: 256,
                 attribution: '© Data from Geoportail'
@@ -211,7 +217,7 @@ const map = new maplibregl.Map({
             },
             'plan-ign-vector': {
                 type: 'vector',
-                tiles: ['https://data.geopf.fr/tms/1.0.0/PLAN.IGN/{z}/{x}/{y}.pbf'],
+                tiles: [buildGeoportailTmsPath('PLAN.IGN/{z}/{x}/{y}.pbf')],
                 maxzoom: 17,
                 attribution: '© Data from Geoportail'
             }

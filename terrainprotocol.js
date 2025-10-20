@@ -1,3 +1,5 @@
+import { GEOPORTAIL_CAPABILITIES_URL, buildGeoportailDemTileUrlRaw } from './geoportailConfig.js';
+
 // Cache only raw DEM tiles
 
 
@@ -338,7 +340,9 @@ async function getDEMTile(tx, ty, demZoom, demMatrix, retryCount = 3) {
 
     return demRequestQueue.enqueue(cacheKey, async () => {
         try {
-            const demUrl = `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS&TILEMATRIXSET=WGS84G&TILEMATRIX=${demZoom}&TILEROW=${ty}&TILECOL=${tx}&FORMAT=image/x-bil;bits=32&STYLE=normal`;
+            const demUrl = buildGeoportailDemTileUrlRaw({
+                layer: 'ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS'
+            }, { z: demZoom, x: tx, y: ty });
             
             const response = await fetch(demUrl, {
                 headers: { 'Accept': '*/*' }
@@ -385,7 +389,7 @@ async function fetchCapabilities() {
         return capabilitiesQueue.enqueue('capabilities', async () => {
             if (!demCapabilities.has('WGS84G')) {  // Double-check after getting queue lock
                 try {
-                    const response = await fetch('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities');
+                    const response = await fetch(GEOPORTAIL_CAPABILITIES_URL);
                     if (!response.ok) throw new Error(`Failed to fetch WMTS Capabilities: ${response.status}`);
                     
                     const text = await response.text();
