@@ -152,7 +152,6 @@ const map = new maplibregl.Map({
             },
             'orthophotos': {
                 type: 'raster',
-                scheme: 'tms',
                 tiles: [
                     buildGeoportailTileUrl({
                         layer: 'ORTHOIMAGERY.ORTHOPHOTOS',
