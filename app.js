@@ -704,7 +704,8 @@ function setupMenuToggle() {
     layerControl.classList.remove('visible');
     menuToggle.classList.remove('active');
 
-    menuToggle.addEventListener('click', () => {
+    menuToggle.addEventListener('click', (event) => {
+        event.stopPropagation();
         isMenuVisible = !isMenuVisible;
         layerControl.classList.toggle('visible');
         menuToggle.classList.toggle('active');
