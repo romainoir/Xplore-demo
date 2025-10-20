@@ -650,9 +650,9 @@ function setupLayerControls() {
             console.debug('[Layers] Option toggled', layerId);
             
             // Handle basemaps and hillshade
-            if (['osm-layer', 'orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
+            if (['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
                 const basemapOptions = Array.from(layerOptions).filter(opt =>
-                    ['osm-layer', 'orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'].includes(opt.dataset.layer)
+                    ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'].includes(opt.dataset.layer)
                 );
 
                 if (layerId === 'hillshade-layer') {
@@ -845,7 +845,7 @@ async function loadOpenTopoLayers() {
 }
 
 function updateBasemapVisibility(selectedId = null) {
-    const basemaps = ['osm-layer', 'orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'];
+    const basemaps = ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'];
     basemaps.forEach(id => {
         map.setLayoutProperty(id, 'visibility', 'none');
     });
