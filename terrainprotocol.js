@@ -1,5 +1,4 @@
 import { processTile, clearTileCaches } from './demProcessor.js';
-import { Protocol as PMTilesProtocol } from 'https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js';
 const SUPPORTS_WORKERS = typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
 const DEFAULT_MAX_WORKERS = 6;
 
@@ -222,37 +221,35 @@ export async function setupTerrainProtocol(maplibregl) {
 
 let mapterhornProtocolInstance = null;
 let mapterhornProtocolRegistered = false;
-let pmtilesProtocolCtor = (typeof globalThis !== 'undefined' && globalThis.pmtiles && globalThis.pmtiles.Protocol)
-    ? globalThis.pmtiles.Protocol
-    : null;
-let pmtilesProtocolPromise = null;
+let pmtilesProtocolCtor = null;
 
-async function getPMTilesProtocolCtor() {
+function resolvePMTilesProtocolCtor() {
     if (pmtilesProtocolCtor) {
         return pmtilesProtocolCtor;
     }
 
-    if (!pmtilesProtocolPromise) {
-        pmtilesProtocolPromise = import('https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.mjs')
-            .then((module) => {
-                if (!module?.Protocol) {
-                    throw new Error('PMTiles module did not provide a Protocol export.');
-                }
-                pmtilesProtocolCtor = module.Protocol;
-                return pmtilesProtocolCtor;
-            })
-            .catch((error) => {
-                pmtilesProtocolPromise = null;
-                throw error;
-            });
+    const globalPmtiles = typeof globalThis !== 'undefined' ? globalThis.pmtiles : undefined;
+    const ProtocolCtor = globalPmtiles?.Protocol;
+
+    if (!ProtocolCtor) {
+        throw new Error('PMTiles global Protocol not available. Ensure pmtiles.js is loaded before app.js.');
     }
 
-    return pmtilesProtocolPromise;
+    pmtilesProtocolCtor = ProtocolCtor;
+    return pmtilesProtocolCtor;
 }
 
 export function setupMapterhornProtocol(maplibregl) {
     if (mapterhornProtocolRegistered) {
         return;
+    }
+
+    try {
+        const ProtocolCtor = resolvePMTilesProtocolCtor();
+        mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
+    } catch (error) {
+        console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
+        throw error;
     }
 
     maplibregl.addProtocol('mapterhorn', async (params, abortController) => {
