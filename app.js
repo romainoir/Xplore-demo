@@ -143,8 +143,15 @@ const map = new maplibregl.Map({
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
             },
+            'osm': {
+                type: 'raster',
+                tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                attribution: '© OpenStreetMap contributors'
+            },
             'orthophotos': {
                 type: 'raster',
+                scheme: 'tms',
                 tiles: [
                     'https://wmts.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg&STYLE=normal'
                 ],
@@ -211,6 +218,7 @@ const map = new maplibregl.Map({
         },
          layers: [
             layerStyles.baseColor,
+            layerStyles.osmLayer,
             layerStyles.orthophotosLayer,
             layerStyles.OpentopoLayer,
             layerStyles.sentinel2Layer,
@@ -277,8 +285,122 @@ let planIGNLayers = [];
 demSource.setupMaplibre(maplibregl);
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 
+let mapInitializationTrigger = null;
+
+async function initializeMapFeatures(trigger) {
+    if (mapInitializationTrigger) {
+        console.debug(`[Init] Initialization already completed (triggered by ${mapInitializationTrigger})`);
+        return;
+    }
+
+    mapInitializationTrigger = trigger;
+    console.debug(`[Init] Running map initialization (triggered by ${trigger})`);
+
+    try {
+        const directionsToggle = document.querySelector('.directions-toggle');
+        const directionsControl = document.querySelector('.directions-control');
+        const transportModes = document.querySelectorAll('.transport-mode');
+        const swapButton = document.getElementById('swap-points');
+        const clearButton = document.getElementById('clear-route');
+        const routeStats = document.getElementById('route-stats');
+        const elevationChart = document.getElementById('elevation-chart');
+
+        console.debug('[Directions] Elements found', {
+            directionsToggle: Boolean(directionsToggle),
+            directionsControl: Boolean(directionsControl),
+            transportModes: transportModes?.length,
+            swapButton: Boolean(swapButton),
+            clearButton: Boolean(clearButton),
+            routeStats: Boolean(routeStats),
+            elevationChart: Boolean(elevationChart)
+        });
+
+        directionsManager = new DirectionsManager(map, [
+            directionsToggle,
+            directionsControl,
+            transportModes,
+            swapButton,
+            clearButton,
+            routeStats,
+            elevationChart
+        ]);
+
+        setTimeout(async () => {
+            try {
+                console.debug('[Init] Starting delayed initialization block');
+                addLayersToMap();
+                console.debug('[Init] Layers added to map');
+                setupLayerControls();
+                console.debug('[Init] Layer controls setup complete');
+                setupMenuToggle();
+                console.debug('[Init] Menu toggle setup complete');
+                setupWikimediaEventListeners();
+                console.debug('[Init] Wikimedia event listeners bound');
+                setupRefugesEventListeners();
+                console.debug('[Init] Refuges event listeners bound');
+
+                map.on('moveend', throttle(() => {
+                    console.debug('[Map] Moveend triggered - fetching data');
+                    fetchPointsOfInterest(map);
+                    fetchWikimediaPhotos();
+                }, THROTTLE_DELAY));
+
+                await initializeThunderforestLayers();
+                console.debug('[Init] Thunderforest layers initialized');
+            } catch (error) {
+                console.error('Initialization error:', error);
+                console.debug('[Init] Initialization error encountered', error);
+            }
+        }, 1000);
+
+        map.on('click', async (e) => {
+            const features = map.queryRenderedFeatures(e.point, { layers: ['poisth'] });
+            if (features.length > 0 &&
+                features[0].properties.feature === 'guidepost' &&
+                features[0].properties.information === 'guidepost') {
+
+                const [lon, lat] = features[0].geometry.coordinates;
+                try {
+                    console.debug('[Signpost] Feature clicked', features[0]);
+                    const query = getOverpassQuery(lat, lon);
+                    console.debug('[Signpost] Overpass query generated', query);
+                    const response = await fetch('https://overpass-api.de/api/interpreter', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'data=' + encodeURIComponent(query)
+                    });
+
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                    const data = await response.json();
+                    console.debug('[Signpost] Overpass data received', data);
+                    osmCache.set(features[0].properties.id, data);
+                    processOsmData(data, lon, lat, features[0]);
+                } catch (error) {
+                    console.error('Error querying OSM:', error);
+                    console.debug('[Signpost] Error detail', error);
+                    new maplibregl.Popup()
+                        .setLngLat([lon, lat])
+                        .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
+                        .addTo(map);
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Failed to run map initialization:', error);
+        mapInitializationTrigger = null;
+    }
+}
+
+const triggerInitialization = (eventName) => {
+    initializeMapFeatures(eventName).catch((error) => {
+        console.error('Unhandled initialization error:', error);
+    });
+};
+
 map.once('style.load', () => {
     console.debug('[Map] style.load event fired');
+    triggerInitialization('style.load');
 });
 
 map.once('render', () => {
@@ -482,9 +604,9 @@ function setupLayerControls() {
             console.debug('[Layers] Option toggled', layerId);
             
             // Handle basemaps and hillshade
-            if (['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
-                const basemapOptions = Array.from(layerOptions).filter(opt => 
-                    ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'].includes(opt.dataset.layer)
+            if (['osm-layer', 'orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
+                const basemapOptions = Array.from(layerOptions).filter(opt =>
+                    ['osm-layer', 'orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'].includes(opt.dataset.layer)
                 );
 
                 if (layerId === 'hillshade-layer') {
@@ -677,11 +799,11 @@ async function loadOpenTopoLayers() {
 }
 
 function updateBasemapVisibility(selectedId = null) {
-    const basemaps = ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'];
+    const basemaps = ['osm-layer', 'orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'];
     basemaps.forEach(id => {
         map.setLayoutProperty(id, 'visibility', 'none');
     });
-    
+
     if (selectedId) {
         map.setLayoutProperty(selectedId, 'visibility', 'visible');
         if (selectedId === 'planIGN-layer') {
@@ -693,6 +815,7 @@ function updateBasemapVisibility(selectedId = null) {
             removeOpenTopoLayers();
         }
     } else {
+        map.setLayoutProperty('osm-layer', 'visibility', 'visible');
         removePlanIGNLayers();
         removeOpenTopoLayers();
     }
@@ -772,99 +895,9 @@ function setupMenuToggle() {
 }
 
 // Map initialization and event handlers
-map.on('load', async () => {
+map.on('load', () => {
     console.debug('[Map] Load event fired');
-    const directionsToggle = document.querySelector('.directions-toggle');
-    const directionsControl = document.querySelector('.directions-control');
-    const transportModes = document.querySelectorAll('.transport-mode');
-    const swapButton = document.getElementById('swap-points');
-    const clearButton = document.getElementById('clear-route');
-    const routeStats = document.getElementById('route-stats');
-    const elevationChart = document.getElementById('elevation-chart');
-
-    console.debug('[Directions] Elements found', {
-        directionsToggle: Boolean(directionsToggle),
-        directionsControl: Boolean(directionsControl),
-        transportModes: transportModes?.length,
-        swapButton: Boolean(swapButton),
-        clearButton: Boolean(clearButton),
-        routeStats: Boolean(routeStats),
-        elevationChart: Boolean(elevationChart)
-    });
-
-    const directionsManager = new DirectionsManager(map, [
-        directionsToggle,
-        directionsControl,
-        transportModes,
-        swapButton,
-        clearButton,
-        routeStats,
-        elevationChart
-    ]);
-
-    setTimeout(async () => {
-        try {
-            console.debug('[Init] Starting delayed initialization block');
-            addLayersToMap();
-            console.debug('[Init] Layers added to map');
-            setupLayerControls();
-            console.debug('[Init] Layer controls setup complete');
-            setupMenuToggle();
-            console.debug('[Init] Menu toggle setup complete');
-            setupWikimediaEventListeners();
-            console.debug('[Init] Wikimedia event listeners bound');
-            setupRefugesEventListeners();
-            console.debug('[Init] Refuges event listeners bound');
-
-            map.on('moveend', throttle(() => {
-                console.debug('[Map] Moveend triggered - fetching data');
-                fetchPointsOfInterest(map);
-                fetchWikimediaPhotos();
-            }, THROTTLE_DELAY));
-
-            await initializeThunderforestLayers();
-            console.debug('[Init] Thunderforest layers initialized');
-
-        } catch (error) {
-            console.error('Initialization error:', error);
-            console.debug('[Init] Initialization error encountered', error);
-        }
-    }, 1000);
-
-    // Handle signpost clicks
-    map.on('click', async (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['poisth'] });
-        if (features.length > 0 &&
-            features[0].properties.feature === 'guidepost' &&
-            features[0].properties.information === 'guidepost') {
-
-            const [lon, lat] = features[0].geometry.coordinates;
-            try {
-                console.debug('[Signpost] Feature clicked', features[0]);
-                const query = getOverpassQuery(lat, lon);
-                console.debug('[Signpost] Overpass query generated', query);
-                const response = await fetch('https://overpass-api.de/api/interpreter', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'data=' + encodeURIComponent(query)
-                });
-
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-                const data = await response.json();
-                console.debug('[Signpost] Overpass data received', data);
-                osmCache.set(features[0].properties.id, data);
-                processOsmData(data, lon, lat, features[0]);
-            } catch (error) {
-                console.error('Error querying OSM:', error);
-                console.debug('[Signpost] Error detail', error);
-                new maplibregl.Popup()
-                    .setLngLat([lon, lat])
-                    .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
-                    .addTo(map);
-            }
-        }
-    });
+    triggerInitialization('load');
 });
 
 
