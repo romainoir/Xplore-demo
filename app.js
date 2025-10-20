@@ -861,7 +861,7 @@ function updateBasemapVisibility(selectedId = null) {
             removeOpenTopoLayers();
         }
     } else {
-        map.setLayoutProperty('osm-layer', 'visibility', 'visible');
+        map.setLayoutProperty('orthophotos-layer', 'visibility', 'visible');
         removePlanIGNLayers();
         removeOpenTopoLayers();
     }
