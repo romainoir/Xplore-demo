@@ -5,7 +5,48 @@ import { processOsmData, getOverpassQuery } from './signpost.js';
 import { layerStyles, addLayersToMap } from './layers.js';
 import { DirectionsManager } from './directions.js';
 import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the function
-import { buildGeoportailTileUrl, buildGeoportailTmsPath } from './geoportailConfig.js';
+
+const GEOPORTAIL_BASE = 'https://data.geopf.fr';
+const GEOPORTAIL_WMTS_BASE = `${GEOPORTAIL_BASE}/wmts`;
+const GEOPORTAIL_TMS_BASE = `${GEOPORTAIL_BASE}/tms/1.0.0`;
+
+function buildGeoportailTileUrl({
+    layer,
+    style = 'normal',
+    format = 'image/png',
+    matrixSet = 'PM',
+    extraParams = ''
+}) {
+    const params = new URLSearchParams({
+        SERVICE: 'WMTS',
+        REQUEST: 'GetTile',
+        VERSION: '1.0.0',
+        LAYER: layer,
+        STYLE: style,
+        FORMAT: format,
+        TILEMATRIXSET: matrixSet,
+        TILEMATRIX: '{z}',
+        TILEROW: '{y}',
+        TILECOL: '{x}'
+    });
+
+    if (extraParams) {
+        new URLSearchParams(extraParams).forEach((value, key) => {
+            params.set(key, value);
+        });
+    }
+
+    const query = params
+        .toString()
+        .replace(/%7B/gi, '{')
+        .replace(/%7D/gi, '}');
+
+    return `${GEOPORTAIL_WMTS_BASE}?${query}`;
+}
+
+function buildGeoportailTmsPath(path) {
+    return `${GEOPORTAIL_TMS_BASE}/${path}`;
+}
 
 console.debug('[App] Script evaluation started');
 
