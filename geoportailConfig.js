@@ -1,18 +1,4 @@
-const DEFAULT_API_KEY = 'essentiels';
-
-function resolveGeoportailApiKey() {
-    if (typeof window !== 'undefined' && window.GEOFR_API_KEY) {
-        return window.GEOFR_API_KEY;
-    }
-    if (typeof self !== 'undefined' && self.GEOFR_API_KEY) {
-        return self.GEOFR_API_KEY;
-    }
-    return DEFAULT_API_KEY;
-}
-
-export const geoportailApiKey = resolveGeoportailApiKey();
-
-const GEOPORTAIL_BASE = `https://data.geopf.fr/${geoportailApiKey}`;
+const GEOPORTAIL_BASE = `https://data.geopf.fr`;
 export const GEOPORTAIL_WMTS_BASE = `${GEOPORTAIL_BASE}/wmts`;
 export const GEOPORTAIL_TMS_BASE = `${GEOPORTAIL_BASE}/tms/1.0.0`;
 export const GEOPORTAIL_CAPABILITIES_URL = `${GEOPORTAIL_WMTS_BASE}?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetCapabilities`;
