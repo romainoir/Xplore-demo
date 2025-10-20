@@ -35,6 +35,7 @@ function throttle(func, limit) {
 }
 
 let directionsManager;
+let isMenuToggleInitialized = false;
 
 // Initialize MapLibre Map
 const map = new maplibregl.Map({
@@ -255,6 +256,8 @@ let planIGNLayers = [];
 // Setup MapLibre protocol and controls
 demSource.setupMaplibre(maplibregl);
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
+const initialMenuSetupComplete = setupMenuToggle();
+console.debug('[Init] Early menu toggle setup attempted', { initialMenuSetupComplete });
 
 const geocoderApi = {
     forwardGeocode: async (config) => {
@@ -706,6 +709,11 @@ function setupMenuToggle() {
         return false;
     }
 
+    if (isMenuToggleInitialized) {
+        console.debug('[Menu] Toggle already initialized');
+        return true;
+    }
+
     console.debug('[Menu] Setup toggle', Boolean(menuToggle), Boolean(layerControl));
     let isMenuVisible = false;
 
@@ -731,6 +739,7 @@ function setupMenuToggle() {
         e.stopPropagation();
     });
 
+    isMenuToggleInitialized = true;
     return true;
 }
 
