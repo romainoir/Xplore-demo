@@ -287,14 +287,37 @@ const geocoderApi = {
     }
 };
 
-map.addControl(
-    new MaplibreGeocoder(geocoderApi, {
-        maplibregl,
-        marker: true,
-        showResultsWhileTyping: true,
-        position: 'top-left'
-    })
-);
+const geocoderControl = new MaplibreGeocoder(geocoderApi, {
+    maplibregl,
+    marker: true,
+    showResultsWhileTyping: true,
+    position: 'top-left'
+});
+
+map.addControl(geocoderControl);
+
+function ensureGeocoderInputHasIdentifiers() {
+    const geocoderInput = document.querySelector('.maplibregl-ctrl-geocoder input[type="text"]');
+    if (!geocoderInput) {
+        return;
+    }
+
+    if (!geocoderInput.id) {
+        geocoderInput.id = 'map-search-input';
+    }
+
+    if (!geocoderInput.name) {
+        geocoderInput.setAttribute('name', 'map-search');
+    }
+
+    if (!geocoderInput.getAttribute('aria-label')) {
+        geocoderInput.setAttribute('aria-label', 'Search for a location');
+    }
+}
+
+ensureGeocoderInputHasIdentifiers();
+requestAnimationFrame(ensureGeocoderInputHasIdentifiers);
+map.on('load', ensureGeocoderInputHasIdentifiers);
 
 map.addControl(new maplibregl.NavigationControl({
     showCompass: true,
