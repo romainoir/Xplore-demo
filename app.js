@@ -4,7 +4,7 @@ import initializeThunderforestLayers from './thunderforest.js';
 import { processOsmData, getOverpassQuery } from './signpost.js';
 import { layerStyles, addLayersToMap } from './layers.js';
 import { DirectionsManager } from './directions.js';
-import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the function
+import { setupTerrainProtocol, setupMapterhornProtocol } from './terrainprotocol.js'; // Import the function
 
 
 // Initialize DEM source
@@ -72,6 +72,14 @@ const map = new maplibregl.Map({
                 tiles: ['customdem://{z}/{x}/{y}/slope'], // this is the custom protocol for slope maps
                  tileSize: 256,
                 maxzoom: 17
+            },
+            'mapterhorn-dem': {
+                type: 'raster-dem',
+                encoding: 'terrarium',
+                tiles: ['mapterhorn://{z}/{x}/{y}'],
+                tileSize: 512,
+                maxzoom: 14,
+                attribution: '© Mapterhorn'
             },
              'custom-aspect': {
                 type: 'raster',
@@ -187,6 +195,7 @@ const map = new maplibregl.Map({
             layerStyles.contours,
             layerStyles.contourText,
             layerStyles.hillshadeLayer,
+            layerStyles.hillshadeLayerMapterhorn,
             layerStyles.snowLayer,
             layerStyles.SlopeLayer,
             layerStyles.AspectSlopeLayer,
@@ -241,11 +250,80 @@ const map = new maplibregl.Map({
 // Layer management
 let currentTerrain = 'custom-dem';
 let planIGNLayers = [];
+let terrainControlHandle = null;
 
+const terrainDependentLayerIds = ['normal-layer', 'slope-layer', 'aspect-layer'];
+
+function setTerrainDependentLayersEnabled(enabled) {
+    terrainDependentLayerIds.forEach(layerId => {
+        const option = document.querySelector(`.layer-option[data-layer="${layerId}"]`);
+        if (option) {
+            option.disabled = !enabled;
+            option.classList.toggle('disabled', !enabled);
+            if (!enabled) {
+                option.classList.remove('active');
+            }
+        }
+
+        if (!enabled && map.getLayer(layerId)) {
+            map.setPaintProperty(layerId, 'raster-opacity', 0);
+        }
+    });
+}
+
+function updateHillshadeVisibility(hillshadeEnabled) {
+    const activeLayer = currentTerrain === 'mapterhorn-dem' ? 'hillshade-layer-mapterhorn' : 'hillshade-layer';
+    const inactiveLayer = currentTerrain === 'mapterhorn-dem' ? 'hillshade-layer' : 'hillshade-layer-mapterhorn';
+
+    if (map.getLayer(activeLayer)) {
+        map.setLayoutProperty(activeLayer, 'visibility', hillshadeEnabled ? 'visible' : 'none');
+    }
+
+    if (map.getLayer(inactiveLayer)) {
+        map.setLayoutProperty(inactiveLayer, 'visibility', 'none');
+    }
+}
+
+function setTerrainSource(sourceId, terrainWarningNote = null) {
+    if (sourceId !== 'mapterhorn-dem' && sourceId !== 'custom-dem') {
+        sourceId = 'custom-dem';
+    }
+
+    const hillshadeButton = document.querySelector('.layer-option[data-layer="hillshade-layer"]');
+    const hillshadeEnabled = hillshadeButton ? hillshadeButton.classList.contains('active') : false;
+
+    if (sourceId === 'mapterhorn-dem') {
+        currentTerrain = 'mapterhorn-dem';
+        map.setTerrain({ source: 'mapterhorn-dem', exaggeration: 1.0 });
+        setTerrainDependentLayersEnabled(false);
+        if (terrainWarningNote) {
+            terrainWarningNote.classList.add('visible');
+        }
+    } else {
+        currentTerrain = 'custom-dem';
+        map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
+        setTerrainDependentLayersEnabled(true);
+        if (terrainWarningNote) {
+            terrainWarningNote.classList.remove('visible');
+        }
+    }
+
+    if (terrainControlHandle) {
+        if (terrainControlHandle._options) {
+            terrainControlHandle._options.source = currentTerrain;
+        }
+        if ('_source' in terrainControlHandle) {
+            terrainControlHandle._source = currentTerrain;
+        }
+    }
+
+    updateHillshadeVisibility(hillshadeEnabled);
+}
 
 // Setup MapLibre protocol and controls
 demSource.setupMaplibre(maplibregl);
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
+setupMapterhornProtocol(maplibregl);
 
 const geocoderApi = {
     forwardGeocode: async (config) => {
@@ -296,18 +374,20 @@ map.addControl(new maplibregl.NavigationControl({
 
 map.addControl(new maplibregl.GlobeControl());
 
-map.addControl(new maplibregl.TerrainControl({
+terrainControlHandle = new maplibregl.TerrainControl({
     source: 'custom-dem',
     exaggeration: 1.0,
     onToggle: (enabled) => {
         if (enabled) {
-           map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
+            map.setTerrain({ source: currentTerrain, exaggeration: 1.0 });
         } else {
             // Disable 3D mode
             map.setTerrain(null);
         }
     }
-}));
+});
+
+map.addControl(terrainControlHandle);
 
 /*
 map.addControl(new maplibregl.ScaleControl({
@@ -330,6 +410,8 @@ function setupLayerControls() {
     const tabContents = layerControl.querySelectorAll('.tab-content');
     const layerToggleButtons = layerControl.querySelectorAll('.layer-toggle-button');
     const layerOptions = layerControl.querySelectorAll('.layer-option');
+    const terrainOptionButtons = layerControl.querySelectorAll('.terrain-option');
+    const terrainWarningNote = layerControl.querySelector('.terrain-note');
 
     // Tab switching functionality
     tabButtons.forEach(button => {
@@ -412,7 +494,7 @@ function setupLayerControls() {
                 if (layerId === 'hillshade-layer') {
                     e.currentTarget.classList.toggle('active');
                     const hillshadeEnabled = e.currentTarget.classList.contains('active');
-                    map.setLayoutProperty('hillshade-layer', 'visibility', hillshadeEnabled ? 'visible' : 'none');
+                    updateHillshadeVisibility(hillshadeEnabled);
 
                     if (hillshadeEnabled && !basemapOptions.some(opt => opt.classList.contains('active'))) {
                         updateBasemapVisibility();
@@ -465,6 +547,22 @@ function setupLayerControls() {
         });
     });
 
+    terrainOptionButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const targetTerrain = button.dataset.terrain;
+            if (!targetTerrain) {
+                return;
+            }
+
+            if (!button.classList.contains('active')) {
+                terrainOptionButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+            }
+
+            setTerrainSource(targetTerrain, terrainWarningNote);
+        });
+    });
+
     // Setup Sentinel-2 controls
     setupSentinel2Controls(layerControl);
 
@@ -473,7 +571,7 @@ function setupLayerControls() {
     if (hillshadeOption) {
         hillshadeOption.classList.add('active');
     }
-    map.setLayoutProperty('hillshade-layer', 'visibility', 'visible');
+    setTerrainSource(currentTerrain, terrainWarningNote);
 }
 
 async function loadPlanIGNLayers() {

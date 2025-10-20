@@ -120,9 +120,68 @@ body {
     font-weight: bold;
    
 }
+
+.layer-option.disabled,
+.layer-option:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 .layer-option.active .basemap-icon, .layer-option.active .overlay-icon{
    border: 2px solid #007bff;
    filter: brightness(1.1);
+}
+
+.terrain-provider {
+    margin-top: 12px;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.terrain-provider strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+}
+
+.terrain-option-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.terrain-option {
+    flex: 1 1 0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    padding: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.terrain-option.active {
+    border-color: #007bff;
+    color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
+    font-weight: 600;
+}
+
+.terrain-option:focus {
+    outline: none;
+}
+
+.terrain-note {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: #555;
+    display: none;
+}
+
+.terrain-note.visible {
+    display: block;
 }
 
 .menu-toggle {
