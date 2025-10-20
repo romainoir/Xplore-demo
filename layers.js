@@ -622,15 +622,21 @@ const layerStyles = {
 // Function to add layers to the map
 export function addLayersToMap() {
     for (const key in layerStyles) {
-        if (key !== 'thunderforestLakes' &&
-            key !== 'thunderforestParking' &&
-            key !== 'thunderforestRoads' &&
-            key !== 'poisth' &&
-            key !== 'hikingRoutes' &&
-            key !== 'pathDifficultyMarkers' &&
-            key !== 'paths' &&
-            key !== 'pathsOutline' &&
-            key !== 'pathsHitArea') {
+        if (key === 'thunderforestLakes' ||
+            key === 'thunderforestParking' ||
+            key === 'thunderforestRoads' ||
+            key === 'poisth' ||
+            key === 'hikingRoutes' ||
+            key === 'pathDifficultyMarkers' ||
+            key === 'paths' ||
+            key === 'pathsOutline' ||
+            key === 'pathsHitArea') {
+            continue;
+        }
+
+        const { id } = layerStyles[key];
+
+        if (id && !map.getLayer(id)) {
             map.addLayer(layerStyles[key]);
         }
     }
