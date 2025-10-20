@@ -7,18 +7,9 @@ async function initializeThunderforestLayers() {
         const apiKey = 'bbb81d9ac1334825af992c8f0a09ea25';
         const MAX_DISTANCE_KM = 4;
 
-        const sourceId = 'thunderforest-outdoors';
-
-        const ensureLayer = (layerDefinition, beforeId = null) => {
-            if (map.getLayer(layerDefinition.id)) {
-                return;
-            }
-            if (beforeId) {
-                map.addLayer(layerDefinition, beforeId);
-            } else {
-                map.addLayer(layerDefinition);
-            }
-        };
+        if (map.getSource('thunderforest-outdoors')) {
+            map.removeSource('thunderforest-outdoors');
+        }
 
         // Create the distance filter using a circle
         function createDistanceFilter() {
@@ -33,35 +24,33 @@ async function initializeThunderforestLayers() {
         }
 
         // Add source
-        if (!map.getSource(sourceId)) {
-            map.addSource(sourceId, {
-                type: 'vector',
-                tiles: [
-                    'https://a.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
-                    'https://b.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
-                    'https://c.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25'
-                ],
-                maxzoom: 14
-            });
-        }
+        map.addSource('thunderforest-outdoors', {
+            type: 'vector',
+            tiles: [
+                'https://a.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
+                'https://b.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
+                'https://c.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25'
+            ],
+            maxzoom: 14
+        });
 
         // Wait for source to be loaded, but avoid hanging forever if the tiles fail
         await new Promise((resolve) => {
             const checkSource = () => {
-                if (map.isSourceLoaded(sourceId)) {
+                if (map.isSourceLoaded('thunderforest-outdoors')) {
                     cleanup();
                     resolve(true);
                 }
             };
 
             const handleSourceData = (event) => {
-                if (event.sourceId === sourceId) {
+                if (event.sourceId === 'thunderforest-outdoors') {
                     checkSource();
                 }
             };
 
             const handleError = (event) => {
-                if (event?.sourceId === sourceId) {
+                if (event?.sourceId === 'thunderforest-outdoors') {
                     console.warn('Thunderforest source failed to load:', event.error);
                     cleanup();
                     resolve(false);
@@ -96,16 +85,16 @@ async function initializeThunderforestLayers() {
                 });
             }
         });
-        ensureLayer(layerStyles.pathsHitArea, 'refuges-layer');
-        ensureLayer(layerStyles.pathsOutline, 'paths-hit-area');
-        ensureLayer(layerStyles.paths, 'paths-outline');
-        ensureLayer(layerStyles.pathDifficultyMarkers);
-        ensureLayer(layerStyles.hikingRoutes);
-        ensureLayer(layerStyles.poisth);
-
-        ensureLayer(layerStyles.thunderforestParking, 'refuges-layer');
-        ensureLayer(layerStyles.thunderforestRoads, 'refuges-layer');
-        ensureLayer(layerStyles.thunderforestLakes);
+        map.addLayer(layerStyles.pathsHitArea, 'refuges-layer');
+        map.addLayer(layerStyles.pathsOutline, 'paths-hit-area');
+        map.addLayer(layerStyles.paths, 'paths-outline');
+        map.addLayer(layerStyles.pathDifficultyMarkers);
+        map.addLayer(layerStyles.hikingRoutes);
+        map.addLayer(layerStyles.poisth);
+       
+       map.addLayer(layerStyles.thunderforestParking, 'refuges-layer');
+       map.addLayer(layerStyles.thunderforestRoads, 'refuges-layer');
+       map.addLayer(layerStyles.thunderforestLakes);
 
         // Load icons first (add this before adding the layer)
         const iconNames = [
@@ -125,16 +114,10 @@ async function initializeThunderforestLayers() {
         ];
 
         await Promise.all(
-            iconNames.map(iconName =>
-                new Promise((resolve) => {
+            iconNames.map(iconName => 
+                new Promise((resolve, reject) => {
                     const img = new Image();
-                    const iconUrl = new URL(`./${iconName}.png`, import.meta.url);
-
                     img.onload = () => {
-                        if (typeof map.hasImage === 'function' && map.hasImage(iconName)) {
-                            resolve();
-                            return;
-                        }
                         const canvas = document.createElement('canvas');
                         const size = 20; // Standard size for all icons
                         canvas.width = size;
@@ -145,28 +128,26 @@ async function initializeThunderforestLayers() {
                         resolve();
                     };
                     img.onerror = () => {
-                        console.warn(`Failed to load icon: ${iconName} (${iconUrl.href})`);
+                        console.warn(`Failed to load icon: ${iconName}`);
                         resolve(); // Resolve anyway to continue loading other icons
                     };
-                    img.src = iconUrl.href;
+                    img.src = `/${iconName}.png`; // Adjust path as needed
                 })
             )
         );
 
         // Water texture setup
-        const waterTextureData = {
+        const waterTextureImage = new Image();
+        waterTextureImage.onload = () => {
+            map.addImage('water_texture', waterTextureImage);
+        };
+        waterTextureImage.src = 'water_texture.webp';
+
+        map.addImage('waterTextureImage', {
             width: 256,
             height: 256,
             data: getWaterTexture()
-        };
-
-        if (typeof map.hasImage !== 'function' || !map.hasImage('water_texture')) {
-            map.addImage('water_texture', waterTextureData);
-        }
-
-        if (typeof map.hasImage !== 'function' || !map.hasImage('waterTextureImage')) {
-            map.addImage('waterTextureImage', waterTextureData);
-        }
+        });
 
         function getWaterTexture() {
             const canvas = document.createElement('canvas');
