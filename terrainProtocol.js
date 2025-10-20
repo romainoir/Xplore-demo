@@ -83,6 +83,31 @@ const DEG_TO_RAD = Math.PI / 180;
 // Optimized key generation
 const getCacheKey = (zoom, x, y, type) => `${zoom}_${x}_${y}_${type}`;
 
+// Reusable OffscreenCanvas instances
+const OFFSCREEN_CANVAS_POOL = new Map();
+
+function acquireOffscreenCanvas(size) {
+    const pool = OFFSCREEN_CANVAS_POOL.get(size);
+    if (pool?.length) {
+        return pool.pop();
+    }
+
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+    return { canvas, ctx };
+}
+
+function releaseOffscreenCanvas(size, entry) {
+    let pool = OFFSCREEN_CANVAS_POOL.get(size);
+    if (!pool) {
+        pool = [];
+        OFFSCREEN_CANVAS_POOL.set(size, pool);
+    }
+
+    entry.ctx.clearRect(0, 0, size, size);
+    pool.push(entry);
+}
+
 function calculateTileBounds(zoom, x, y) {
     const n = 1 << zoom;
     const lonLeft = (x / n) * 360 - 180;
@@ -107,96 +132,177 @@ function calculateZoomScale(zoom) {
 }
 
 // Efficient implementation of median filter for terrain data
+const MEDIAN_KERNEL_CACHE = new Map();
+
 function medianFilter(data, width, height, kernelSize = 3) {
+    if (kernelSize === 1) {
+        return data.slice();
+    }
+
+    if (kernelSize === 3) {
+        return medianFilter3x3(data, width, height);
+    }
+
+    return medianFilterGeneric(data, width, height, kernelSize);
+}
+
+function getMedianWorkspace(kernelSize, totalSize) {
+    const cacheKey = `${kernelSize}-${totalSize}`;
+    if (!MEDIAN_KERNEL_CACHE.has(cacheKey)) {
+        MEDIAN_KERNEL_CACHE.set(cacheKey, new Float32Array(kernelSize * kernelSize));
+    }
+    return MEDIAN_KERNEL_CACHE.get(cacheKey);
+}
+
+function medianFilterGeneric(data, width, height, kernelSize) {
     const halfKernel = Math.floor(kernelSize / 2);
     const result = new Float32Array(width * height);
-    const kernel = new Float32Array(kernelSize * kernelSize);
-    
+    const window = getMedianWorkspace(kernelSize, width * height);
+    const windowSize = kernelSize * kernelSize;
+
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-            let kernelIndex = 0;
-            
-            // Gather values for the kernel window
+            let idx = 0;
+
             for (let ky = -halfKernel; ky <= halfKernel; ky++) {
                 const ny = Math.max(0, Math.min(height - 1, y + ky));
-                
                 for (let kx = -halfKernel; kx <= halfKernel; kx++) {
                     const nx = Math.max(0, Math.min(width - 1, x + kx));
-                    kernel[kernelIndex++] = data[ny * width + nx];
+                    const value = data[ny * width + nx];
+
+                    let insertPos = idx;
+                    while (insertPos > 0 && window[insertPos - 1] > value) {
+                        window[insertPos] = window[insertPos - 1];
+                        insertPos--;
+                    }
+                    window[insertPos] = value;
+                    idx++;
                 }
             }
-            
-            // Sort kernel values and take median
-            kernel.sort((a, b) => a - b);
-            result[y * width + x] = kernel[Math.floor(kernelSize * kernelSize / 2)];
+
+            result[y * width + x] = window[Math.floor(windowSize / 2)];
         }
     }
-    
+
+    return result;
+}
+
+function medianFilter3x3(data, width, height) {
+    const result = new Float32Array(width * height);
+    const window = new Float32Array(9);
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let idx = 0;
+
+            for (let ky = -1; ky <= 1; ky++) {
+                const ny = Math.max(0, Math.min(height - 1, y + ky));
+                for (let kx = -1; kx <= 1; kx++) {
+                    const nx = Math.max(0, Math.min(width - 1, x + kx));
+                    const value = data[ny * width + nx];
+
+                    let insertPos = idx;
+                    while (insertPos > 0 && window[insertPos - 1] > value) {
+                        window[insertPos] = window[insertPos - 1];
+                        insertPos--;
+                    }
+                    window[insertPos] = value;
+                    idx++;
+                }
+            }
+
+            result[y * width + x] = window[4];
+        }
+    }
+
     return result;
 }
 
 // Gaussian blur for smoother results
+const GAUSSIAN_KERNEL_CACHE = new Map();
+const GAUSSIAN_BUFFER_CACHE = new Map();
+
 function gaussianBlur(data, width, height, sigma = 1.4) {
     const kernelSize = Math.max(3, Math.ceil(sigma * 3) * 2 + 1);
     const halfKernel = Math.floor(kernelSize / 2);
-    const kernel = createGaussianKernel(kernelSize, sigma);
-    const result = new Float32Array(width * height);
-    const temp = new Float32Array(width * height);
-    
+    const kernel = getGaussianKernel(kernelSize, sigma);
+    const buffers = getGaussianBuffers(width, height);
+    const temp = buffers.temp;
+    const result = buffers.result;
+
     // Horizontal pass
     for (let y = 0; y < height; y++) {
+        const rowOffset = y * width;
         for (let x = 0; x < width; x++) {
             let sum = 0;
             let weightSum = 0;
-            
+
             for (let kx = -halfKernel; kx <= halfKernel; kx++) {
                 const nx = Math.max(0, Math.min(width - 1, x + kx));
                 const weight = kernel[kx + halfKernel];
-                sum += data[y * width + nx] * weight;
+                sum += data[rowOffset + nx] * weight;
                 weightSum += weight;
             }
-            
-            temp[y * width + x] = sum / weightSum;
+
+            temp[rowOffset + x] = sum / weightSum;
         }
     }
-    
+
     // Vertical pass
     for (let x = 0; x < width; x++) {
         for (let y = 0; y < height; y++) {
             let sum = 0;
             let weightSum = 0;
-            
+
             for (let ky = -halfKernel; ky <= halfKernel; ky++) {
                 const ny = Math.max(0, Math.min(height - 1, y + ky));
                 const weight = kernel[ky + halfKernel];
                 sum += temp[ny * width + x] * weight;
                 weightSum += weight;
             }
-            
+
             result[y * width + x] = sum / weightSum;
         }
     }
-    
+
     return result;
 }
 
-function createGaussianKernel(size, sigma) {
+function getGaussianKernel(size, sigma) {
+    const key = `${size}-${sigma}`;
+    if (GAUSSIAN_KERNEL_CACHE.has(key)) {
+        return GAUSSIAN_KERNEL_CACHE.get(key);
+    }
+
     const kernel = new Float32Array(size);
     const center = Math.floor(size / 2);
     let sum = 0;
-    
+
     for (let i = 0; i < size; i++) {
         const x = i - center;
         kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
         sum += kernel[i];
     }
-    
-    // Normalize kernel
+
     for (let i = 0; i < size; i++) {
         kernel[i] /= sum;
     }
-    
+
+    GAUSSIAN_KERNEL_CACHE.set(key, kernel);
     return kernel;
+}
+
+function getGaussianBuffers(width, height) {
+    const key = `${width}x${height}`;
+    let buffers = GAUSSIAN_BUFFER_CACHE.get(key);
+    if (!buffers) {
+        buffers = {
+            temp: new Float32Array(width * height),
+            result: new Float32Array(width * height)
+        };
+        GAUSSIAN_BUFFER_CACHE.set(key, buffers);
+    }
+    return buffers;
 }
 
 // Combined filter that applies both median and gaussian blur
@@ -206,17 +312,23 @@ function applyTerrainFilters(heightmap, width, height, options = {}) {
         gaussianSigma = 1.4,
         iterations = 1
     } = options;
-    
+
+    if (iterations <= 0 || (medianKernelSize <= 1 && gaussianSigma <= 0)) {
+        return heightmap;
+    }
+
     let filtered = heightmap;
-    
+
     for (let i = 0; i < iterations; i++) {
         // Apply median filter first to remove spikes
         filtered = medianFilter(filtered, width, height, medianKernelSize);
-        
+
         // Then apply gaussian blur for smoother transitions
-        filtered = gaussianBlur(filtered, width, height, gaussianSigma);
+        if (gaussianSigma > 0) {
+            filtered = gaussianBlur(filtered, width, height, gaussianSigma);
+        }
     }
-    
+
     return filtered;
 }
 
@@ -644,27 +756,41 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
     const [sw, ne] = tileBounds;
     const latScale = (ne[0] - sw[0]) / OUTPUT_SIZE;
     const lonScale = (ne[1] - sw[1]) / OUTPUT_SIZE;
+    const lonRange = demBounds[1][1] - demBounds[0][1];
+    const latRange = demBounds[1][0] - demBounds[0][0];
+    const lonFactor = lonRange !== 0 ? mergedWidth / lonRange : 0;
+    const latFactor = latRange !== 0 ? mergedHeight / latRange : 0;
+    const lonStart = sw[1];
+    const latStart = ne[0];
+    const mergedWidthMinus1 = mergedWidth - 1;
+    const mergedHeightMinus1 = mergedHeight - 1;
 
     for (let y = 0; y < OUTPUT_SIZE; y++) {
-        const lat = ne[0] - y * latScale;
+        const lat = latStart - y * latScale;
+        const yDemRaw = (demBounds[1][0] - lat) * latFactor;
+        const yDem = Math.max(0, Math.min(yDemRaw, mergedHeightMinus1));
+        const y0 = Math.floor(yDem);
+        const y1 = Math.min(y0 + 1, mergedHeightMinus1);
+        const dy = yDem - y0;
+        const rowOffset = y * OUTPUT_SIZE;
+
         for (let x = 0; x < OUTPUT_SIZE; x++) {
-            const lon = sw[1] + x * lonScale;
-            const xDem = ((lon - demBounds[0][1]) / (demBounds[1][1] - demBounds[0][1])) * mergedWidth;
-            const yDem = ((demBounds[1][0] - lat) / (demBounds[1][0] - demBounds[0][0])) * mergedHeight;
-
+            const lon = lonStart + x * lonScale;
+            const xDemRaw = (lon - demBounds[0][1]) * lonFactor;
+            const xDem = Math.max(0, Math.min(xDemRaw, mergedWidthMinus1));
             const x0 = Math.floor(xDem);
-            const y0 = Math.floor(yDem);
-            const x1 = Math.min(x0 + 1, mergedWidth - 1);
-            const y1 = Math.min(y0 + 1, mergedHeight - 1);
-
+            const x1 = Math.min(x0 + 1, mergedWidthMinus1);
             const dx = xDem - x0;
-            const dy = yDem - y0;
 
-            resampledDEM[y * OUTPUT_SIZE + x] = 
-                (1 - dx) * (1 - dy) * mergedDEM[y0 * mergedWidth + x0] +
-                dx * (1 - dy) * mergedDEM[y0 * mergedWidth + x1] +
-                (1 - dx) * dy * mergedDEM[y1 * mergedWidth + x0] +
-                dx * dy * mergedDEM[y1 * mergedWidth + x1];
+            const topLeft = mergedDEM[y0 * mergedWidth + x0];
+            const topRight = mergedDEM[y0 * mergedWidth + x1];
+            const bottomLeft = mergedDEM[y1 * mergedWidth + x0];
+            const bottomRight = mergedDEM[y1 * mergedWidth + x1];
+
+            const top = topLeft + dx * (topRight - topLeft);
+            const bottom = bottomLeft + dx * (bottomRight - bottomLeft);
+
+            resampledDEM[rowOffset + x] = top + dy * (bottom - top);
         }
     }
 
@@ -692,12 +818,17 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
     }
 
     // Convert to PNG buffer
-    const canvas = new OffscreenCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
-    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
-    ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
+    const canvasEntry = acquireOffscreenCanvas(OUTPUT_SIZE);
+    try {
+        const { canvas, ctx } = canvasEntry;
+        ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
 
-    const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
-    return await blob.arrayBuffer();
+        const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
+        const buffer = await blob.arrayBuffer();
+        return buffer;
+    } finally {
+        releaseOffscreenCanvas(OUTPUT_SIZE, canvasEntry);
+    }
 }
 
 export async function setupTerrainProtocol(maplibregl) {
@@ -736,6 +867,10 @@ export async function setupTerrainProtocol(maplibregl) {
                 }
                 demCache.clear();
                 demCapabilities.clear();
+                MEDIAN_KERNEL_CACHE.clear();
+                GAUSSIAN_KERNEL_CACHE.clear();
+                GAUSSIAN_BUFFER_CACHE.clear();
+                OFFSCREEN_CANVAS_POOL.clear();
             }
         };
     }
@@ -770,6 +905,10 @@ export async function setupTerrainProtocol(maplibregl) {
                 window.fetch = originalFetch;
                 demCache.clear();
                 demCapabilities.clear();
+                MEDIAN_KERNEL_CACHE.clear();
+                GAUSSIAN_KERNEL_CACHE.clear();
+                GAUSSIAN_BUFFER_CACHE.clear();
+                OFFSCREEN_CANVAS_POOL.clear();
             }
         };
     }
@@ -779,6 +918,10 @@ export async function setupTerrainProtocol(maplibregl) {
         cleanup: () => {
             demCache.clear();
             demCapabilities.clear();
+            MEDIAN_KERNEL_CACHE.clear();
+            GAUSSIAN_KERNEL_CACHE.clear();
+            GAUSSIAN_BUFFER_CACHE.clear();
+            OFFSCREEN_CANVAS_POOL.clear();
         }
     };
 }
