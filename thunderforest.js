@@ -125,9 +125,11 @@ async function initializeThunderforestLayers() {
         ];
 
         await Promise.all(
-            iconNames.map(iconName => 
-                new Promise((resolve, reject) => {
+            iconNames.map(iconName =>
+                new Promise((resolve) => {
                     const img = new Image();
+                    const iconUrl = new URL(`./${iconName}.png`, import.meta.url);
+
                     img.onload = () => {
                         if (typeof map.hasImage === 'function' && map.hasImage(iconName)) {
                             resolve();
@@ -143,10 +145,10 @@ async function initializeThunderforestLayers() {
                         resolve();
                     };
                     img.onerror = () => {
-                        console.warn(`Failed to load icon: ${iconName}`);
+                        console.warn(`Failed to load icon: ${iconName} (${iconUrl.href})`);
                         resolve(); // Resolve anyway to continue loading other icons
                     };
-                    img.src = `/${iconName}.png`; // Adjust path as needed
+                    img.src = iconUrl.href;
                 })
             )
         );
