@@ -1,6 +1,4 @@
 // Cache only raw DEM tiles
-
-
 class DEMCache {
     constructor(maxSize = 800) {
         this.cache = new Map();
@@ -86,7 +84,7 @@ function tile2lat(y, z) {
 
 function calculateZoomScale(zoom) {
     // We should use the exact pixel to meter ratio at zoom level 16 as IGN
-    const metersPerPixelAtZoom16 = 1.0;  // We might need to verify this value
+    const metersPerPixelAtZoom16 = 1.5;  // We might need to verify this value
     const metersPerPixel = metersPerPixelAtZoom16 * Math.pow(2, 16 - zoom);
     return metersPerPixel;
 }
@@ -329,49 +327,35 @@ function encodeTerrainRGB(elevation) {
 }
 
 // Update getDEMTile to use the queue
-async function getDEMTile(tx, ty, demZoom, demMatrix, retryCount = 3) {
+async function getDEMTile(tx, ty, demZoom, demMatrix) {
     const cacheKey = `${demZoom}_${tx}_${ty}`;
     const cachedTile = demCache.get(cacheKey);
     if (cachedTile) return cachedTile;
-    
-    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+    // Use request queue to deduplicate in-flight requests
     return demRequestQueue.enqueue(cacheKey, async () => {
         try {
             const demUrl = `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES.MNS&TILEMATRIXSET=WGS84G&TILEMATRIX=${demZoom}&TILEROW=${ty}&TILECOL=${tx}&FORMAT=image/x-bil;bits=32&STYLE=normal`;
-            
-            const response = await fetch(demUrl, {
-                headers: { 'Accept': '*/*' }
-            });
-
+            const response = await fetch(demUrl);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-            const compressed = new Uint8Array(await response.arrayBuffer());
-            
-            if (compressed[0] === 0x78 && compressed[1] === 0x9c) {
-                const decompressed = pako.inflate(compressed);
-                const elevationData = new Float32Array(decompressed.buffer);
+            const buffer = await response.arrayBuffer();
+            const elevationData = new Float32Array(buffer);
 
-                const [originLon, originLat] = demMatrix.topLeftCorner;
-                const degreesPerTileLon = 360 / demMatrix.matrixWidth;
-                const degreesPerTileLat = 180 / demMatrix.matrixHeight;
+            const [originLon, originLat] = demMatrix.topLeftCorner;
+            const degreesPerTileLon = 360 / demMatrix.matrixWidth;
+            const degreesPerTileLat = 180 / demMatrix.matrixHeight;
 
-                const tileBounds = [
-                    [originLat - (ty + 1) * degreesPerTileLat, originLon + tx * degreesPerTileLon],
-                    [originLat - ty * degreesPerTileLat, originLon + (tx + 1) * degreesPerTileLon]
-                ];
+            const tileBounds = [
+                [originLat - (ty + 1) * degreesPerTileLat, originLon + tx * degreesPerTileLon],
+                [originLat - ty * degreesPerTileLat, originLon + (tx + 1) * degreesPerTileLon]
+            ];
 
-                const tileData = { elevationData, bounds: tileBounds, x: tx, y: ty };
-                demCache.set(cacheKey, tileData);
-                return tileData;
-            } else {
-                throw new Error('Invalid data format');
-            }
+            const tileData = { elevationData, bounds: tileBounds, x: tx, y: ty };
+            demCache.set(cacheKey, tileData);
+            return tileData;
         } catch (error) {
-            if (retryCount > 1) {
-                await delay(1000 * Math.pow(2, 3 - retryCount));
-                return getDEMTile(tx, ty, demZoom, demMatrix, retryCount - 1);
-            }
+            console.error('Error fetching DEM tile:', error);
             throw error;
         }
     });
@@ -456,10 +440,7 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
     const yMin = Math.floor((originLat - tileBounds[1][0]) / degreesPerTileLat);
     const yMax = Math.floor((originLat - tileBounds[0][0]) / degreesPerTileLat);
 
-    // Track failed attempts
-    const failedTiles = [];
-    
-    // Fetch required DEM tiles with retry logic
+    // Fetch required DEM tiles
     const demTiles = (await Promise.all(
         Array.from({ length: (xMax - xMin + 1) * (yMax - yMin + 1) }, async (_, i) => {
             const tx = xMin + (i % (xMax - xMin + 1));
@@ -468,20 +449,13 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
                 return await getDEMTile(tx, ty, demZoom, demMatrix);
             } catch (error) {
                 console.warn(`Failed to fetch DEM tile ${tx},${ty}`, error);
-                failedTiles.push({ tx, ty, error: error.message });
                 return null;
             }
         })
-    )).filter(Boolean);
+    )).filter(Boolean); // Remove any null results from failed fetches
 
     if (!demTiles.length) {
-        console.error('Failed tiles:', failedTiles);
         throw new Error('No DEM tiles fetched successfully.');
-    }
-
-    // Log warning if some tiles failed but we can continue with partial data
-    if (failedTiles.length > 0) {
-        console.warn(`${failedTiles.length} tiles failed to load:`, failedTiles);
     }
 
     // Calculate merged DEM bounds

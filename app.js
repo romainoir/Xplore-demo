@@ -134,7 +134,7 @@ const map = new maplibregl.Map({
             'heatmap': {
                 type: 'raster',
                 tiles: [
-                    'https://proxy.nakarte.me/https/heatmap-external-c.strava.com/tiles-auth/winter/hot/{z}/{x}/{y}.png?v=19'
+                    ' https://proxy.nakarte.me/https/content-a.strava.com/identified/globalheat/all/hot/{z}/{x}/{y}.png?v=19'
                 ],
                 tileSize: 512,
                 maxzoom: 17,
@@ -721,7 +721,7 @@ map.on('load', async () => {
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
                 loadingScreen.classList.add('fade-out');
-                setTimeout(() => loadingScreen.style.display = 'none', 100);
+                setTimeout(() => loadingScreen.style.display = 'none', 50);
             }
         } catch (error) {
             console.error('Initialization error:', error);
