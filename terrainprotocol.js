@@ -253,6 +253,16 @@ export function setupMapterhornProtocol(maplibregl) {
     }
 
     maplibregl.addProtocol('mapterhorn', async (params, abortController) => {
+        if (!mapterhornProtocolInstance) {
+            try {
+                const ProtocolCtor = await getPMTilesProtocolCtor();
+                mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
+            } catch (error) {
+                console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
+                throw error;
+            }
+        }
+
         const [z, x, y] = params.url.replace('mapterhorn://', '').split('/').map(Number);
         const name = z <= 12 ? 'planet' : `6-${x >> (z - 6)}-${y >> (z - 6)}`;
         const url = `pmtiles://https://download.mapterhorn.com/${name}.pmtiles/${z}/${x}/${y}.webp`;
@@ -266,4 +276,9 @@ export function setupMapterhornProtocol(maplibregl) {
     });
 
     mapterhornProtocolRegistered = true;
+    if (!pmtilesProtocolCtor) {
+        getPMTilesProtocolCtor().catch((error) => {
+            console.error('Deferred PMTiles module load failed:', error);
+        });
+    }
 }
