@@ -54,12 +54,19 @@ const map = new maplibregl.Map({
             position: [100, 90, 5]
         },
         sources: {
-           'custom-dem': { // DEM
+           'custom-dem-hillshade': { // DEM for hillshade rendering
                   type: 'raster-dem',
                   encoding: 'mapbox',
                   tiles: ['customdem://{z}/{x}/{y}'], // this is the custom protocol for DEM
                    tileSize: 256,
                    maxzoom: 17
+                },
+           'custom-dem-terrain': { // DEM dedicated to 3D terrain
+                  type: 'raster-dem',
+                  encoding: 'mapbox',
+                  tiles: ['customdem://{z}/{x}/{y}'],
+                  tileSize: 256,
+                  maxzoom: 17
                 },
             'custom-normal': {
               type: 'raster',
@@ -206,7 +213,7 @@ const map = new maplibregl.Map({
             layerStyles.thunderforestLakes,
         ],
         terrain: {
-           source: 'custom-dem',
+           source: 'custom-dem-terrain',
             exaggeration: 1.0
         },
         sky: {
@@ -239,7 +246,7 @@ const map = new maplibregl.Map({
 });
 
 // Layer management
-let currentTerrain = 'custom-dem';
+let currentTerrain = 'custom-dem-terrain';
 let planIGNLayers = [];
 
 
@@ -297,11 +304,11 @@ map.addControl(new maplibregl.NavigationControl({
 map.addControl(new maplibregl.GlobeControl());
 
 map.addControl(new maplibregl.TerrainControl({
-    source: 'custom-dem',
+    source: 'custom-dem-terrain',
     exaggeration: 1.0,
     onToggle: (enabled) => {
         if (enabled) {
-           map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
+           map.setTerrain({ source: 'custom-dem-terrain', exaggeration: 1.0 });
         } else {
             // Disable 3D mode
             map.setTerrain(null);
