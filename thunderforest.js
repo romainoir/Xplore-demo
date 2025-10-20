@@ -4,12 +4,32 @@ import { layerStyles } from './layers.js';
 
 async function initializeThunderforestLayers() {
     try {
+        if (map.__thunderforestInitialized) {
+            return;
+        }
+        map.__thunderforestInitialized = true;
+
         const apiKey = 'bbb81d9ac1334825af992c8f0a09ea25';
         const MAX_DISTANCE_KM = 4;
 
-        if (map.getSource('thunderforest-outdoors')) {
-            map.removeSource('thunderforest-outdoors');
-        }
+        const thunderforestLayerIds = [
+            'paths-hit-area',
+            'paths-outline',
+            'paths',
+            'path-difficulty-markers',
+            'hiking-routes',
+            'poisth',
+            'thunderforest-parking',
+            'thunderforest-roads',
+            'thunderforest-lakes'
+        ];
+
+        // Ensure all dependent layers are removed before manipulating the source
+        thunderforestLayerIds.forEach((layerId) => {
+            if (map.getLayer(layerId)) {
+                map.removeLayer(layerId);
+            }
+        });
 
         // Create the distance filter using a circle
         function createDistanceFilter() {
@@ -23,16 +43,18 @@ async function initializeThunderforestLayers() {
             return ['within', circle];
         }
 
-        // Add source
-        map.addSource('thunderforest-outdoors', {
-            type: 'vector',
-            tiles: [
-                'https://a.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
-                'https://b.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
-                'https://c.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25'
-            ],
-            maxzoom: 14
-        });
+        // Add source if it does not already exist in the style
+        if (!map.getSource('thunderforest-outdoors')) {
+            map.addSource('thunderforest-outdoors', {
+                type: 'vector',
+                tiles: [
+                    'https://a.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
+                    'https://b.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25',
+                    'https://c.tile.thunderforest.com/thunderforest.outdoors-v2/{z}/{x}/{y}.vector.pbf?apikey=bbb81d9ac1334825af992c8f0a09ea25'
+                ],
+                maxzoom: 14
+            });
+        }
 
         // Wait for source to be loaded
         await new Promise((resolve) => {
@@ -69,7 +91,11 @@ async function initializeThunderforestLayers() {
         ];
 
         orderedLayerAdds.forEach(({ style, before }) => {
-            if (!style?.id || map.getLayer(style.id)) {
+            if (!style?.id) {
+                return;
+            }
+
+            if (map.getLayer(style.id)) {
                 return;
             }
 
