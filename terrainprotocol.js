@@ -1,4 +1,5 @@
 import { processTile, clearTileCaches } from './demProcessor.js';
+import { Protocol as PMTilesProtocol } from 'https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.mjs';
 
 const SUPPORTS_WORKERS = typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
 const DEFAULT_MAX_WORKERS = 6;
@@ -218,4 +219,30 @@ export async function setupTerrainProtocol(maplibregl) {
             clearTileCaches();
         }
     };
+}
+
+let mapterhornProtocolInstance = null;
+let mapterhornProtocolRegistered = false;
+
+export function setupMapterhornProtocol(maplibregl) {
+    if (mapterhornProtocolRegistered) {
+        return;
+    }
+
+    mapterhornProtocolInstance = new PMTilesProtocol({ metadata: true, errorOnMissingTile: true });
+
+    maplibregl.addProtocol('mapterhorn', async (params, abortController) => {
+        const [z, x, y] = params.url.replace('mapterhorn://', '').split('/').map(Number);
+        const name = z <= 12 ? 'planet' : `6-${x >> (z - 6)}-${y >> (z - 6)}`;
+        const url = `pmtiles://https://download.mapterhorn.com/${name}.pmtiles/${z}/${x}/${y}.webp`;
+        const response = await mapterhornProtocolInstance.tile({ ...params, url }, abortController);
+
+        if (!response || response.data == null) {
+            throw new Error(`Tile z=${z} x=${x} y=${y} not found.`);
+        }
+
+        return response;
+    });
+
+    mapterhornProtocolRegistered = true;
 }
