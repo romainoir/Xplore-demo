@@ -142,7 +142,7 @@ const layerStyles = {
     hillshadeLayer: {
         id: 'hillshade-layer',
         type: 'hillshade',
-        source: 'custom-dem',
+        source: 'custom-dem-hillshade',
         layout: { visibility: 'visible' },
         paint: {
             'hillshade-exaggeration': 0.3,
