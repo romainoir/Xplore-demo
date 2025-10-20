@@ -6,6 +6,8 @@ import { layerStyles, addLayersToMap } from './layers.js';
 import { DirectionsManager } from './directions.js';
 import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the function
 
+console.debug('[App] Script evaluation started');
+
 
 // Initialize DEM source
 const demSource = new mlcontour.DemSource({
@@ -258,8 +260,10 @@ const geocoderApi = {
     forwardGeocode: async (config) => {
         const features = [];
         try {
+            console.debug('[Geocoder] Forward geocode request', config?.query);
             const request = `https://nominatim.openstreetmap.org/search?q=${config.query}&format=geojson&polygon_geojson=1&addressdetails=1`;
             const response = await fetch(request);
+            console.debug('[Geocoder] Response status', response.status);
             const geojson = await response.json();
             for (const feature of geojson.features) {
                 const center = [
@@ -299,6 +303,7 @@ map.addControl(geocoderControl);
 function ensureGeocoderInputHasIdentifiers() {
     const geocoderInput = document.querySelector('.maplibregl-ctrl-geocoder input[type="text"]');
     if (!geocoderInput) {
+        console.debug('[Geocoder] Input element not found yet');
         return;
     }
 
@@ -356,6 +361,7 @@ map.addControl(new maplibregl.GeolocateControl({
 
 function setupLayerControls() {
     const layerControl = document.querySelector('.layer-control');
+    console.debug('[Layers] Initializing layer controls', Boolean(layerControl));
     const tabButtons = layerControl.querySelectorAll('.tab-button');
     const tabContents = layerControl.querySelectorAll('.tab-content');
     const layerToggleButtons = layerControl.querySelectorAll('.layer-toggle-button');
@@ -432,6 +438,7 @@ function setupLayerControls() {
     layerOptions.forEach(option => {
         option.addEventListener('click', (e) => {
             const layerId = e.currentTarget.dataset.layer;
+            console.debug('[Layers] Option toggled', layerId);
             
             // Handle basemaps and hillshade
             if (['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
@@ -508,6 +515,7 @@ function setupLayerControls() {
 
 async function loadPlanIGNLayers() {
     try {
+        console.debug('[PlanIGN] Fetching layer style');
         const response = await fetch(
             'https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/standard.json'
         );
@@ -515,6 +523,7 @@ async function loadPlanIGNLayers() {
             throw new Error(`Failed to fetch standard.json: ${response.statusText}`);
         }
         const styleJson = await response.json();
+        console.debug('[PlanIGN] Style fetched successfully');
 
         if (planIGNLayers.length > 0) {
             planIGNLayers.forEach(layer => {
@@ -689,6 +698,7 @@ function setupSentinel2Controls(layerControl) {
 function setupMenuToggle() {
     const menuToggle = document.querySelector('.menu-toggle');
     const layerControl = document.querySelector('.layer-control');
+    console.debug('[Menu] Setup toggle', Boolean(menuToggle), Boolean(layerControl));
     let isMenuVisible = false;
 
     layerControl.classList.remove('visible');
@@ -715,6 +725,7 @@ function setupMenuToggle() {
 
 // Map initialization and event handlers
 map.on('load', async () => {
+    console.debug('[Map] Load event fired');
     const directionsToggle = document.querySelector('.directions-toggle');
     const directionsControl = document.querySelector('.directions-control');
     const transportModes = document.querySelectorAll('.transport-mode');
@@ -722,6 +733,16 @@ map.on('load', async () => {
     const clearButton = document.getElementById('clear-route');
     const routeStats = document.getElementById('route-stats');
     const elevationChart = document.getElementById('elevation-chart');
+
+    console.debug('[Directions] Elements found', {
+        directionsToggle: Boolean(directionsToggle),
+        directionsControl: Boolean(directionsControl),
+        transportModes: transportModes?.length,
+        swapButton: Boolean(swapButton),
+        clearButton: Boolean(clearButton),
+        routeStats: Boolean(routeStats),
+        elevationChart: Boolean(elevationChart)
+    });
 
     const directionsManager = new DirectionsManager(map, [
         directionsToggle,
@@ -732,29 +753,39 @@ map.on('load', async () => {
         routeStats,
         elevationChart
     ]);
-    
+
     setTimeout(async () => {
         try {
+            console.debug('[Init] Starting delayed initialization block');
             addLayersToMap();
+            console.debug('[Init] Layers added to map');
             setupLayerControls();
+            console.debug('[Init] Layer controls setup complete');
             setupMenuToggle();
+            console.debug('[Init] Menu toggle setup complete');
             setupWikimediaEventListeners();
+            console.debug('[Init] Wikimedia event listeners bound');
             setupRefugesEventListeners();
+            console.debug('[Init] Refuges event listeners bound');
 
             map.on('moveend', throttle(() => {
+                console.debug('[Map] Moveend triggered - fetching data');
                 fetchPointsOfInterest(map);
                 fetchWikimediaPhotos();
             }, THROTTLE_DELAY));
-            
+
             await initializeThunderforestLayers();
+            console.debug('[Init] Thunderforest layers initialized');
 
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
+                console.debug('[Init] Hiding loading screen');
                 loadingScreen.classList.add('fade-out');
                 setTimeout(() => loadingScreen.style.display = 'none', 500);
             }
         } catch (error) {
             console.error('Initialization error:', error);
+            console.debug('[Init] Initialization error encountered', error);
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
                 loadingScreen.classList.add('fade-out');
@@ -772,7 +803,9 @@ map.on('load', async () => {
 
             const [lon, lat] = features[0].geometry.coordinates;
             try {
+                console.debug('[Signpost] Feature clicked', features[0]);
                 const query = getOverpassQuery(lat, lon);
+                console.debug('[Signpost] Overpass query generated', query);
                 const response = await fetch('https://overpass-api.de/api/interpreter', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -782,10 +815,12 @@ map.on('load', async () => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
                 const data = await response.json();
+                console.debug('[Signpost] Overpass data received', data);
                 osmCache.set(features[0].properties.id, data);
                 processOsmData(data, lon, lat, features[0]);
             } catch (error) {
                 console.error('Error querying OSM:', error);
+                console.debug('[Signpost] Error detail', error);
                 new maplibregl.Popup()
                     .setLngLat([lon, lat])
                     .setHTML(`<div style="padding:10px;"><strong>Error querying OSM data</strong><br>${error.message}</div>`)
