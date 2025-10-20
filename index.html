@@ -6,9 +6,14 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="apple-touch-icon" href="/icon.png">
     <title>Xplore</title>
-    <link href="https://unpkg.com/maplibre-gl@v5.0.0/dist/maplibre-gl.css" rel="stylesheet" crossorigin="anonymous" />
+    <link href="https://unpkg.com/maplibre-gl@5.0.0/dist/maplibre-gl.css" rel="stylesheet" crossorigin="anonymous" />
+    <script src="https://unpkg.com/maplibre-gl@5.0.0/dist/maplibre-gl.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/maplibre-contour@0.0.5/dist/index.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.css" crossorigin="anonymous" />
     <link rel="stylesheet" href="https://unpkg.com/@maplibre/maplibre-gl-directions@0.7.0/dist/style.css" crossorigin="anonymous" />
     <link rel="stylesheet" href="styles.css">
@@ -35,7 +40,10 @@
         </div>
         <div class="tab-content active" id="basemaps">
             <div class="layer-options">
-                <button class="layer-option active" data-layer="orthophotos-layer">
+                <button class="layer-option active" data-layer="osm-layer">
+                  <img src="logo.png" alt="OpenStreetMap" class="basemap-icon">OpenStreetMap
+                </button>
+                <button class="layer-option" data-layer="orthophotos-layer">
                   <img src="ortho.png" alt="IGN Ortho" class="basemap-icon">IGN Ortho
                 </button>
                 <button class="layer-option" data-layer="planIGN-layer">
@@ -174,6 +182,6 @@
         </div>
     </div>
     <ul id="profile-display"></ul>
-    <script type="module" src="bootstrap.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
