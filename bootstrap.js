@@ -30,7 +30,14 @@ async function loadExternalScript({ url, stripSourceMap = false, description }) 
 
     let scriptContent = await response.text();
     if (stripSourceMap) {
-        scriptContent = scriptContent.replace(/\/\/#[#@]\s*sourceMappingURL=.*$/gm, '');
+        // Remove any sourceMappingURL comments to prevent the browser from
+        // attempting to download sourcemap files that are not bundled with the
+        // application. When the scripts are injected inline (via text
+        // content), those relative sourcemap URLs resolve against the current
+        // page and trigger 404 errors in the console. The previous regular
+        // expression occasionally missed cases when additional whitespace or
+        // carriage returns were present, so we normalise the detection here.
+        scriptContent = scriptContent.replace(/\/\/[#@][ \t]*sourceMappingURL=.*?(?:\r?\n|$)/g, '');
     }
 
     const scriptElement = document.createElement('script');
