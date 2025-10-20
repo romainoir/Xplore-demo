@@ -631,7 +631,17 @@ export function addLayersToMap() {
             key !== 'paths' &&
             key !== 'pathsOutline' &&
             key !== 'pathsHitArea') {
-            map.addLayer(layerStyles[key]);
+            const layerDefinition = layerStyles[key];
+
+            if (!layerDefinition?.id) {
+                continue;
+            }
+
+            if (map.getLayer(layerDefinition.id)) {
+                continue;
+            }
+
+            map.addLayer(layerDefinition);
         }
     }
 }

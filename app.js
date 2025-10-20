@@ -758,6 +758,7 @@ map.on('load', async () => {
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
                 loadingScreen.classList.add('fade-out');
+                setTimeout(() => loadingScreen.style.display = 'none', 500);
             }
         }
     }, 1000);
