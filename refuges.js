@@ -512,11 +512,14 @@ function setupRefugesEventListeners() {
 // Attach changeSlide to window
 window.changeSlide = changeSlide;
 
-// Clean up when page unloads
-window.addEventListener('unload', () => {
+// Clean up when the page is being hidden or unloaded
+const cleanupCaches = () => {
     photoCache.clear();
     processedFeatures.clear();
     failedRequests.clear();
-});
+};
+
+window.addEventListener('pagehide', cleanupCaches);
+window.addEventListener('beforeunload', cleanupCaches);
 
 export { fetchPointsOfInterest, setupRefugesEventListeners };
