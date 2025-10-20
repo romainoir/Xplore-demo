@@ -8,6 +8,26 @@ import { setupTerrainProtocol } from './terrainprotocol.js'; // Import the funct
 
 console.debug('[App] Script evaluation started');
 
+// Basic runtime diagnostics to ensure the DOM and required containers exist
+if (document.readyState === 'loading') {
+    console.debug('[App] Document still loading, waiting for DOMContentLoaded');
+    document.addEventListener('DOMContentLoaded', () => {
+        console.debug('[App] DOMContentLoaded fired');
+    }, { once: true });
+} else {
+    console.debug('[App] Document already loaded');
+}
+
+const maplibreAvailable = typeof maplibregl !== 'undefined';
+console.debug('[App] MapLibre global available', maplibreAvailable);
+
+const mapContainer = document.getElementById('map');
+const hasMapContainer = Boolean(mapContainer);
+console.debug('[App] Map container present', hasMapContainer);
+if (!hasMapContainer) {
+    console.error('[App] Map container with id="map" not found in DOM');
+}
+
 
 // Initialize DEM source
 const demSource = new mlcontour.DemSource({
@@ -37,6 +57,7 @@ function throttle(func, limit) {
 let directionsManager;
 
 // Initialize MapLibre Map
+console.debug('[App] Creating MapLibre map instance');
 const map = new maplibregl.Map({
     container: 'map',
     canvasContextAttributes: {
@@ -256,6 +277,22 @@ let planIGNLayers = [];
 demSource.setupMaplibre(maplibregl);
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 
+map.once('style.load', () => {
+    console.debug('[Map] style.load event fired');
+});
+
+map.once('render', () => {
+    console.debug('[Map] First render completed');
+});
+
+map.once('idle', () => {
+    console.debug('[Map] Idle event reached (initial load complete)');
+});
+
+map.on('error', (event) => {
+    console.error('[Map] Error event received', event?.error || event);
+});
+
 const geocoderApi = {
     forwardGeocode: async (config) => {
         const features = [];
@@ -362,6 +399,10 @@ map.addControl(new maplibregl.GeolocateControl({
 function setupLayerControls() {
     const layerControl = document.querySelector('.layer-control');
     console.debug('[Layers] Initializing layer controls', Boolean(layerControl));
+    if (!layerControl) {
+        console.error('[Layers] Layer control container not found in DOM');
+        return;
+    }
     const tabButtons = layerControl.querySelectorAll('.tab-button');
     const tabContents = layerControl.querySelectorAll('.tab-content');
     const layerToggleButtons = layerControl.querySelectorAll('.layer-toggle-button');
@@ -699,6 +740,13 @@ function setupMenuToggle() {
     const menuToggle = document.querySelector('.menu-toggle');
     const layerControl = document.querySelector('.layer-control');
     console.debug('[Menu] Setup toggle', Boolean(menuToggle), Boolean(layerControl));
+    if (!menuToggle || !layerControl) {
+        console.error('[Menu] Required menu toggle elements missing', {
+            hasMenuToggle: Boolean(menuToggle),
+            hasLayerControl: Boolean(layerControl)
+        });
+        return;
+    }
     let isMenuVisible = false;
 
     layerControl.classList.remove('visible');
