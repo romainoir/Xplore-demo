@@ -1,5 +1,4 @@
 import { processTile, clearTileCaches } from './demProcessor.js';
-import { Protocol as PMTilesProtocol } from 'https://unpkg.com/pmtiles@4.3.0/dist/pmtiles.js';
 const SUPPORTS_WORKERS = typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
 const DEFAULT_MAX_WORKERS = 6;
 
@@ -222,13 +221,36 @@ export async function setupTerrainProtocol(maplibregl) {
 
 let mapterhornProtocolInstance = null;
 let mapterhornProtocolRegistered = false;
+let pmtilesProtocolCtor = null;
+
+function resolvePMTilesProtocolCtor() {
+    if (pmtilesProtocolCtor) {
+        return pmtilesProtocolCtor;
+    }
+
+    const globalPmtiles = typeof globalThis !== 'undefined' ? globalThis.pmtiles : undefined;
+    const ProtocolCtor = globalPmtiles?.Protocol;
+
+    if (!ProtocolCtor) {
+        throw new Error('PMTiles global Protocol not available. Ensure pmtiles.js is loaded before app.js.');
+    }
+
+    pmtilesProtocolCtor = ProtocolCtor;
+    return pmtilesProtocolCtor;
+}
 
 export function setupMapterhornProtocol(maplibregl) {
     if (mapterhornProtocolRegistered) {
         return;
     }
 
-    mapterhornProtocolInstance = new PMTilesProtocol({ metadata: true, errorOnMissingTile: true });
+    try {
+        const ProtocolCtor = resolvePMTilesProtocolCtor();
+        mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
+    } catch (error) {
+        console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
+        throw error;
+    }
 
     maplibregl.addProtocol('mapterhorn', async (params, abortController) => {
         const [z, x, y] = params.url.replace('mapterhorn://', '').split('/').map(Number);
