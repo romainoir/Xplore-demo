@@ -265,7 +265,16 @@ function setTerrainDependentLayersEnabled(enabled) {
             }
         }
 
-        if (!enabled && map.getLayer(layerId)) {
+        if (!map.getLayer(layerId)) {
+            return;
+        }
+
+        if (enabled) {
+            const isActive = option ? option.classList.contains('active') : false;
+            map.setLayoutProperty(layerId, 'visibility', isActive ? 'visible' : 'none');
+            map.setPaintProperty(layerId, 'raster-opacity', isActive ? 0.8 : 0);
+        } else {
+            map.setLayoutProperty(layerId, 'visibility', 'none');
             map.setPaintProperty(layerId, 'raster-opacity', 0);
         }
     });
@@ -518,12 +527,14 @@ function setupLayerControls() {
                 // Handle terrain analysis layers
                 if (['normal-layer', 'slope-layer', 'aspect-layer'].includes(layerId)) {
                     const newOpacity = isActive ? 0 : 0.8;
+                    map.setLayoutProperty(layerId, 'visibility', isActive ? 'none' : 'visible');
                     map.setPaintProperty(layerId, 'raster-opacity', newOpacity);
-                    
+
                     // If enabling one terrain analysis layer, disable others
                     if (!isActive) {
                         ['normal-layer', 'slope-layer', 'aspect-layer'].forEach(id => {
                             if (id !== layerId) {
+                                map.setLayoutProperty(id, 'visibility', 'none');
                                 map.setPaintProperty(id, 'raster-opacity', 0);
                                 const otherOption = Array.from(layerOptions).find(opt => opt.dataset.layer === id);
                                 if (otherOption) otherOption.classList.remove('active');
