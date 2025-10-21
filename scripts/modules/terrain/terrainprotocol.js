@@ -5,7 +5,7 @@ const DEFAULT_MAX_WORKERS = 6;
 class DemWorkerPool {
     constructor() {
         this.supported = SUPPORTS_WORKERS;
-        this.workerUrl = this.supported ? new URL('./demTileWorker.js', import.meta.url) : null;
+        this.workerUrl = this.supported ? new URL('../../workers/demTileWorker.js', import.meta.url) : null;
         this.maxWorkers = this.supported
             ? Math.max(1, Math.min(DEFAULT_MAX_WORKERS, (navigator.hardwareConcurrency || 4) - 1 || 1))
             : 0;

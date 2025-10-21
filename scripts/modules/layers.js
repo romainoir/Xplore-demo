@@ -1,5 +1,5 @@
 // layers.js
-import { map } from './app.js';
+import { map } from '../main/app.js';
 
 const layerStyles = {
     baseColor: {

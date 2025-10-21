@@ -1,10 +1,10 @@
-import { fetchWikimediaPhotos, setupWikimediaEventListeners } from './wikimedia.js';
-import { fetchPointsOfInterest, setupRefugesEventListeners } from './refuges.js';
-import initializeThunderforestLayers from './thunderforest.js';
-import { processOsmData, getOverpassQuery } from './signpost.js';
-import { layerStyles, addLayersToMap } from './layers.js';
-import { DirectionsManager } from './directions.js';
-import { setupTerrainProtocol, setupMapterhornProtocol } from './terrainprotocol.js'; // Import the function
+import { fetchWikimediaPhotos, setupWikimediaEventListeners } from '../modules/wikimedia.js';
+import { fetchPointsOfInterest, setupRefugesEventListeners } from '../modules/refuges.js';
+import initializeThunderforestLayers from '../modules/thunderforest.js';
+import { processOsmData, getOverpassQuery } from '../modules/signpost.js';
+import { layerStyles, addLayersToMap } from '../modules/layers.js';
+import { DirectionsManager } from '../modules/directions.js';
+import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js'; // Import the function
 
 
 // Initialize DEM source

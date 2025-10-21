@@ -1,5 +1,5 @@
 // wikimedia.js
-import { map } from './app.js';
+import { map } from '../main/app.js';
 
 let wikimediaInitialized = false;
 

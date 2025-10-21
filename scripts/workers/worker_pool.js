@@ -19,8 +19,9 @@ export class WorkerPool {
     }
 
     initialize() {
+        const workerUrl = new URL('./worker_maplibre.js', import.meta.url);
         for (let i = 0; i < this.maxWorkers; i++) {
-            const worker = new Worker('worker_maplibre.js');
+            const worker = new Worker(workerUrl);
             this.workers.push(worker);
             this.busy.push(false);
             worker.onmessage = this.createMessageHandler(i);

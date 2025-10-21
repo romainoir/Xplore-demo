@@ -1,4 +1,4 @@
-import { calculateNormals, calculateSlope, calculateAspect, encodeNormalMap, encodeSlopeMap, encodeAspectMap, encodeTerrainRGB } from './terrainprotocol.js';
+import { calculateNormals, calculateSlope, calculateAspect, encodeNormalMap, encodeSlopeMap, encodeAspectMap, encodeTerrainRGB } from '../modules/terrain/terrainprotocol.js';
 
 
 onmessage = async (event) => {

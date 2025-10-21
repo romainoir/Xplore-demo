@@ -1,5 +1,5 @@
 // refuges.js
-import { map } from './app.js';
+import { map } from '../main/app.js';
 
 const photoCache = new Map();
 const processedFeatures = new Set();
