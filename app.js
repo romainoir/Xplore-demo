@@ -252,6 +252,7 @@ let currentTerrain = 'custom-dem';
 let planIGNLayers = [];
 let terrainControlHandle = null;
 let previousTerrainViewState = null;
+let terrainWarningNoteElement = null;
 
 const terrainDependentLayerIds = ['normal-layer', 'slope-layer', 'aspect-layer'];
 
@@ -295,6 +296,9 @@ function updateHillshadeVisibility(hillshadeEnabled) {
 }
 
 function setTerrainSource(sourceId, terrainWarningNote = null) {
+    if (!terrainWarningNote && terrainWarningNoteElement) {
+        terrainWarningNote = terrainWarningNoteElement;
+    }
     if (sourceId !== 'mapterhorn-dem' && sourceId !== 'custom-dem') {
         sourceId = 'custom-dem';
     }
@@ -389,7 +393,11 @@ terrainControlHandle = new maplibregl.TerrainControl({
     exaggeration: 1.0,
     onToggle: (enabled) => {
         if (enabled) {
-            map.setTerrain({ source: currentTerrain, exaggeration: 1.0 });
+            if (terrainWarningNoteElement) {
+                setTerrainSource(currentTerrain, terrainWarningNoteElement);
+            } else {
+                map.setTerrain({ source: currentTerrain, exaggeration: 1.0 });
+            }
             if (previousTerrainViewState) {
                 const { pitch, bearing } = previousTerrainViewState;
                 previousTerrainViewState = null;
@@ -447,6 +455,8 @@ function setupLayerControls() {
     const layerOptions = layerControl.querySelectorAll('.layer-option');
     const terrainOptionButtons = layerControl.querySelectorAll('.terrain-option');
     const terrainWarningNote = layerControl.querySelector('.terrain-note');
+
+    terrainWarningNoteElement = terrainWarningNote;
 
     // Tab switching functionality
     tabButtons.forEach(button => {
