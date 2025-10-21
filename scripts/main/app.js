@@ -38,7 +38,7 @@ const contourDemSources = {
             maxzoom: 14,
             worker: false
         }),
-        supportsContourProtocol: false
+        supportsContourProtocol: true
     },
     'custom-dem': {
         demSource: new mlcontour.DemSource({
@@ -302,6 +302,16 @@ const map = new maplibregl.Map({
 });
 
 // Layer management
+const CONTOUR_LAYER_IDS = ['contours', 'contour-text'];
+
+function ensureContourLayersOnTop() {
+    CONTOUR_LAYER_IDS.forEach(layerId => {
+        if (map.getLayer(layerId)) {
+            map.moveLayer(layerId);
+        }
+    });
+}
+
 let currentTerrain = 'dem';
 let planIGNLayers = [];
 let terrainControlHandle = null;
@@ -320,11 +330,12 @@ function updateContourSource(terrainId) {
 
     if (typeof contourSource.setTiles === 'function') {
         contourSource.setTiles(tiles);
+        ensureContourLayersOnTop();
         return;
     }
 
     const previousVisibility = {};
-    ['contours', 'contour-text'].forEach(layerId => {
+    CONTOUR_LAYER_IDS.forEach(layerId => {
         if (map.getLayer(layerId)) {
             previousVisibility[layerId] = map.getLayoutProperty(layerId, 'visibility');
             map.removeLayer(layerId);
@@ -339,6 +350,7 @@ function updateContourSource(terrainId) {
     });
 
     addLayersToMap();
+    ensureContourLayersOnTop();
 
     Object.entries(previousVisibility).forEach(([layerId, visibility]) => {
         map.setLayoutProperty(layerId, 'visibility', visibility);
@@ -425,9 +437,9 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
 }
 
 // Setup MapLibre protocol and controls
-Object.values(contourDemSources).forEach(({ demSource }) => demSource.setupMaplibre(maplibregl));
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 setupMapterhornProtocol(maplibregl);
+Object.values(contourDemSources).forEach(({ demSource }) => demSource.setupMaplibre(maplibregl));
 
 const geocoderApi = {
     forwardGeocode: async (config) => {
@@ -600,7 +612,7 @@ function setupLayerControls() {
                     break;
 
                 case 'contours':
-                    ['contours', 'contour-text'].forEach(contourLayer => {
+                    CONTOUR_LAYER_IDS.forEach(contourLayer => {
                         map.setLayoutProperty(contourLayer, 'visibility', isActive ? 'none' : 'visible');
                     });
                     break;
@@ -678,11 +690,14 @@ function setupLayerControls() {
                 // Handle contour overlays
                 else if (layerId === 'contours') {
                     const visibility = isActive ? 'none' : 'visible';
-                    ['contours', 'contour-text'].forEach(id => {
+                    CONTOUR_LAYER_IDS.forEach(id => {
                         if (map.getLayer(id)) {
                             map.setLayoutProperty(id, 'visibility', visibility);
                         }
                     });
+                    if (!isActive) {
+                        ensureContourLayersOnTop();
+                    }
                 }
                 // Handle regular raster layers
                 else if (['Snow-layer', 'heatmap-layer', 'Slope-layer'].includes(layerId)) {
@@ -949,6 +964,7 @@ map.on('load', async () => {
     setTimeout(async () => {
         try {
             addLayersToMap();
+            ensureContourLayersOnTop();
             setupLayerControls();
             setupMenuToggle();
             setupWikimediaEventListeners();
@@ -960,6 +976,7 @@ map.on('load', async () => {
             }, THROTTLE_DELAY));
             
             await initializeThunderforestLayers();
+            ensureContourLayersOnTop();
 
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
