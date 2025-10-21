@@ -22,60 +22,32 @@ const CONTOUR_PROTOCOL_BASE_OPTIONS = {
 };
 
 const contourDemSources = {
-    'dem': {
-        demSource: new mlcontour.DemSource({
-            url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-            encoding: 'terrarium',
-            maxzoom: 14,
-            worker: false
-        }),
-        supportsContourProtocol: true
-    },
-    'mapterhorn-dem': {
-        demSource: new mlcontour.DemSource({
-            url: 'mapterhorn://{z}/{x}/{y}',
-            encoding: 'terrarium',
-            maxzoom: 14,
-            worker: false
-        }),
-        supportsContourProtocol: true
-    },
-    'custom-dem': {
-        demSource: new mlcontour.DemSource({
-            url: 'customdem://{z}/{x}/{y}',
-            encoding: 'mapbox',
-            maxzoom: 17,
-            worker: false
-        }),
-        supportsContourProtocol: false
-    }
+    'dem': new mlcontour.DemSource({
+        url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+        encoding: 'terrarium',
+        maxzoom: 14,
+        worker: false
+    }),
+    'mapterhorn-dem': new mlcontour.DemSource({
+        url: 'mapterhorn://{z}/{x}/{y}',
+        encoding: 'terrarium',
+        maxzoom: 14,
+        worker: false
+    }),
+    'custom-dem': new mlcontour.DemSource({
+        url: 'customdem://{z}/{x}/{y}',
+        encoding: 'mapbox',
+        maxzoom: 17,
+        worker: false
+    })
 };
 
 function getContourDemSource(terrainId) {
-    const config = contourDemSources[terrainId] || contourDemSources['dem'];
-    return config.demSource;
-}
-
-let lastUnsupportedContourTerrainId = null;
-
-function getSupportedContourTerrainId(terrainId) {
-    const config = contourDemSources[terrainId];
-
-    if (!config || !config.supportsContourProtocol) {
-        if (terrainId !== 'dem' && lastUnsupportedContourTerrainId !== terrainId) {
-            console.warn(`Contour overlay is not supported for terrain source "${terrainId}". Falling back to the default Terrarium DEM.`);
-            lastUnsupportedContourTerrainId = terrainId;
-        }
-        return 'dem';
-    }
-
-    lastUnsupportedContourTerrainId = null;
-    return terrainId;
+    return contourDemSources[terrainId] || contourDemSources['dem'];
 }
 
 function getContourTileUrl(terrainId) {
-    const supportedTerrainId = getSupportedContourTerrainId(terrainId);
-    return getContourDemSource(supportedTerrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
+    return getContourDemSource(terrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
 }
 
 
@@ -302,16 +274,6 @@ const map = new maplibregl.Map({
 });
 
 // Layer management
-const CONTOUR_LAYER_IDS = ['contours', 'contour-text'];
-
-function ensureContourLayersOnTop() {
-    CONTOUR_LAYER_IDS.forEach(layerId => {
-        if (map.getLayer(layerId)) {
-            map.moveLayer(layerId);
-        }
-    });
-}
-
 let currentTerrain = 'dem';
 let planIGNLayers = [];
 let terrainControlHandle = null;
@@ -330,12 +292,11 @@ function updateContourSource(terrainId) {
 
     if (typeof contourSource.setTiles === 'function') {
         contourSource.setTiles(tiles);
-        ensureContourLayersOnTop();
         return;
     }
 
     const previousVisibility = {};
-    CONTOUR_LAYER_IDS.forEach(layerId => {
+    ['contours', 'contour-text'].forEach(layerId => {
         if (map.getLayer(layerId)) {
             previousVisibility[layerId] = map.getLayoutProperty(layerId, 'visibility');
             map.removeLayer(layerId);
@@ -350,7 +311,6 @@ function updateContourSource(terrainId) {
     });
 
     addLayersToMap();
-    ensureContourLayersOnTop();
 
     Object.entries(previousVisibility).forEach(([layerId, visibility]) => {
         map.setLayoutProperty(layerId, 'visibility', visibility);
@@ -437,9 +397,9 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
 }
 
 // Setup MapLibre protocol and controls
+Object.values(contourDemSources).forEach(source => source.setupMaplibre(maplibregl));
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 setupMapterhornProtocol(maplibregl);
-Object.values(contourDemSources).forEach(({ demSource }) => demSource.setupMaplibre(maplibregl));
 
 const geocoderApi = {
     forwardGeocode: async (config) => {
@@ -612,7 +572,7 @@ function setupLayerControls() {
                     break;
 
                 case 'contours':
-                    CONTOUR_LAYER_IDS.forEach(contourLayer => {
+                    ['contours', 'contour-text'].forEach(contourLayer => {
                         map.setLayoutProperty(contourLayer, 'visibility', isActive ? 'none' : 'visible');
                     });
                     break;
@@ -690,14 +650,11 @@ function setupLayerControls() {
                 // Handle contour overlays
                 else if (layerId === 'contours') {
                     const visibility = isActive ? 'none' : 'visible';
-                    CONTOUR_LAYER_IDS.forEach(id => {
+                    ['contours', 'contour-text'].forEach(id => {
                         if (map.getLayer(id)) {
                             map.setLayoutProperty(id, 'visibility', visibility);
                         }
                     });
-                    if (!isActive) {
-                        ensureContourLayersOnTop();
-                    }
                 }
                 // Handle regular raster layers
                 else if (['Snow-layer', 'heatmap-layer', 'Slope-layer'].includes(layerId)) {
@@ -964,7 +921,6 @@ map.on('load', async () => {
     setTimeout(async () => {
         try {
             addLayersToMap();
-            ensureContourLayersOnTop();
             setupLayerControls();
             setupMenuToggle();
             setupWikimediaEventListeners();
@@ -976,7 +932,6 @@ map.on('load', async () => {
             }, THROTTLE_DELAY));
             
             await initializeThunderforestLayers();
-            ensureContourLayersOnTop();
 
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
