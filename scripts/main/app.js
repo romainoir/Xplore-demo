@@ -22,32 +22,60 @@ const CONTOUR_PROTOCOL_BASE_OPTIONS = {
 };
 
 const contourDemSources = {
-    'dem': new mlcontour.DemSource({
-        url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-        encoding: 'terrarium',
-        maxzoom: 14,
-        worker: false
-    }),
-    'mapterhorn-dem': new mlcontour.DemSource({
-        url: 'mapterhorn://{z}/{x}/{y}',
-        encoding: 'terrarium',
-        maxzoom: 14,
-        worker: false
-    }),
-    'custom-dem': new mlcontour.DemSource({
-        url: 'customdem://{z}/{x}/{y}',
-        encoding: 'mapbox',
-        maxzoom: 17,
-        worker: false
-    })
+    'dem': {
+        demSource: new mlcontour.DemSource({
+            url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+            encoding: 'terrarium',
+            maxzoom: 14,
+            worker: false
+        }),
+        supportsContourProtocol: true
+    },
+    'mapterhorn-dem': {
+        demSource: new mlcontour.DemSource({
+            url: 'mapterhorn://{z}/{x}/{y}',
+            encoding: 'terrarium',
+            maxzoom: 14,
+            worker: false
+        }),
+        supportsContourProtocol: false
+    },
+    'custom-dem': {
+        demSource: new mlcontour.DemSource({
+            url: 'customdem://{z}/{x}/{y}',
+            encoding: 'mapbox',
+            maxzoom: 17,
+            worker: false
+        }),
+        supportsContourProtocol: false
+    }
 };
 
 function getContourDemSource(terrainId) {
-    return contourDemSources[terrainId] || contourDemSources['dem'];
+    const config = contourDemSources[terrainId] || contourDemSources['dem'];
+    return config.demSource;
+}
+
+let lastUnsupportedContourTerrainId = null;
+
+function getSupportedContourTerrainId(terrainId) {
+    const config = contourDemSources[terrainId];
+
+    if (!config || !config.supportsContourProtocol) {
+        if (terrainId !== 'dem' && lastUnsupportedContourTerrainId !== terrainId) {
+            console.warn(`Contour overlay is not supported for terrain source "${terrainId}". Falling back to the default Terrarium DEM.`);
+            lastUnsupportedContourTerrainId = terrainId;
+        }
+        return 'dem';
+    }
+
+    lastUnsupportedContourTerrainId = null;
+    return terrainId;
 }
 
 function getContourTileUrl(terrainId) {
-    return getContourDemSource(terrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
+    const supportedTerrainId = getSupportedContourTerrainId(terrainId);
+    return getContourDemSource(supportedTerrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
 }
 
 
@@ -397,7 +425,7 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
 }
 
 // Setup MapLibre protocol and controls
-Object.values(contourDemSources).forEach(source => source.setupMaplibre(maplibregl));
+Object.values(contourDemSources).forEach(({ demSource }) => demSource.setupMaplibre(maplibregl));
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 setupMapterhornProtocol(maplibregl);
 
