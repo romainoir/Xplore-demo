@@ -7,13 +7,48 @@ import { DirectionsManager } from '../modules/directions.js';
 import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js'; // Import the function
 
 
-// Initialize DEM source
-const demSource = new mlcontour.DemSource({
-    url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
-    encoding: "terrarium",
-    maxzoom: 14,
-    worker: false // Disable the worker from mlcontour as we will handle it ourself
-});
+// Initialize DEM sources for contour generation
+const CONTOUR_PROTOCOL_BASE_OPTIONS = {
+    thresholds: {
+        11: [50, 200],
+        12: [50, 200],
+        13: [25, 100],
+        14: [25, 100],
+        15: [10, 50]
+    },
+    elevationKey: 'ele',
+    levelKey: 'level',
+    contourLayer: 'contours'
+};
+
+const contourDemSources = {
+    'dem': new mlcontour.DemSource({
+        url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+        encoding: 'terrarium',
+        maxzoom: 14,
+        worker: false
+    }),
+    'mapterhorn-dem': new mlcontour.DemSource({
+        url: 'mapterhorn://{z}/{x}/{y}',
+        encoding: 'terrarium',
+        maxzoom: 14,
+        worker: false
+    }),
+    'custom-dem': new mlcontour.DemSource({
+        url: 'customdem://{z}/{x}/{y}',
+        encoding: 'mapbox',
+        maxzoom: 17,
+        worker: false
+    })
+};
+
+function getContourDemSource(terrainId) {
+    return contourDemSources[terrainId] || contourDemSources['dem'];
+}
+
+function getContourTileUrl(terrainId) {
+    return getContourDemSource(terrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
+}
 
 
 // Constants
@@ -90,25 +125,14 @@ const map = new maplibregl.Map({
             'dem': {
                 type: 'raster-dem',
                 encoding: 'terrarium',
-                tiles: [demSource.sharedDemProtocolUrl],
+                tiles: [getContourDemSource('dem').sharedDemProtocolUrl],
                 maxzoom: 14,
                 tileSize: 256
             },
             'contours': {
                 type: 'vector',
                 tiles: [
-                    demSource.contourProtocolUrl({
-                        thresholds: {
-                            11: [50, 200],
-                            12: [50, 200],
-                            13: [25, 100],
-                            14: [25, 100],
-                            15: [10, 50]
-                        },
-                        elevationKey: 'ele',
-                        levelKey: 'level',
-                        contourLayer: 'contours'
-                    })
+                    getContourTileUrl('dem')
                 ],
                 maxzoom: 18
             },
@@ -217,7 +241,7 @@ const map = new maplibregl.Map({
             layerStyles.thunderforestLakes,
         ],
         terrain: {
-           source: 'custom-dem',
+           source: 'dem',
             exaggeration: 1.0
         },
         sky: {
@@ -250,13 +274,48 @@ const map = new maplibregl.Map({
 });
 
 // Layer management
-let currentTerrain = 'custom-dem';
+let currentTerrain = 'dem';
 let planIGNLayers = [];
 let terrainControlHandle = null;
 let previousTerrainViewState = null;
 let terrainWarningNoteElement = null;
 
 const terrainDependentLayerIds = ['normal-layer', 'slope-layer', 'aspect-layer'];
+
+function updateContourSource(terrainId) {
+    const contourSource = map.getSource('contours');
+    if (!contourSource) {
+        return;
+    }
+
+    const tiles = [getContourTileUrl(terrainId)];
+
+    if (typeof contourSource.setTiles === 'function') {
+        contourSource.setTiles(tiles);
+        return;
+    }
+
+    const previousVisibility = {};
+    ['contours', 'contour-text'].forEach(layerId => {
+        if (map.getLayer(layerId)) {
+            previousVisibility[layerId] = map.getLayoutProperty(layerId, 'visibility');
+            map.removeLayer(layerId);
+        }
+    });
+
+    map.removeSource('contours');
+    map.addSource('contours', {
+        type: 'vector',
+        tiles,
+        maxzoom: 18
+    });
+
+    addLayersToMap();
+
+    Object.entries(previousVisibility).forEach(([layerId, visibility]) => {
+        map.setLayoutProperty(layerId, 'visibility', visibility);
+    });
+}
 
 function setTerrainDependentLayersEnabled(enabled) {
     terrainDependentLayerIds.forEach(layerId => {
@@ -291,7 +350,7 @@ function updateHillshadeVisibility(hillshadeEnabled) {
         'dem': 'hillshade-layer-terrarium'
     };
 
-    const activeLayer = terrainHillshadeMap[currentTerrain] || terrainHillshadeMap['custom-dem'];
+    const activeLayer = terrainHillshadeMap[currentTerrain] || terrainHillshadeMap['dem'];
 
     Object.values(terrainHillshadeMap).forEach(layerId => {
         if (!map.getLayer(layerId)) {
@@ -308,7 +367,7 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
     }
     const supportedTerrains = new Set(['custom-dem', 'mapterhorn-dem', 'dem']);
     if (!supportedTerrains.has(sourceId)) {
-        sourceId = 'custom-dem';
+        sourceId = 'dem';
     }
 
     const hillshadeButton = document.querySelector('.layer-option[data-layer="hillshade-layer"]');
@@ -316,6 +375,7 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
 
     currentTerrain = sourceId;
     map.setTerrain({ source: sourceId, exaggeration: 1.0 });
+    updateContourSource(currentTerrain);
 
     const supportsTerrainAnalysis = sourceId === 'custom-dem';
     setTerrainDependentLayersEnabled(supportsTerrainAnalysis);
@@ -337,7 +397,7 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
 }
 
 // Setup MapLibre protocol and controls
-demSource.setupMaplibre(maplibregl);
+Object.values(contourDemSources).forEach(source => source.setupMaplibre(maplibregl));
 setupTerrainProtocol(maplibregl); // Set up the custom protocol
 setupMapterhornProtocol(maplibregl);
 
@@ -391,7 +451,7 @@ map.addControl(new maplibregl.NavigationControl({
 map.addControl(new maplibregl.GlobeControl());
 
 terrainControlHandle = new maplibregl.TerrainControl({
-    source: 'custom-dem',
+    source: 'dem',
     exaggeration: 1.0,
     onToggle: (enabled) => {
         if (enabled) {
