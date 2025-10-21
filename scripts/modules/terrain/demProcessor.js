@@ -537,12 +537,7 @@ async function processDEMTile({ zoom, x, y, type = 'elevation' }) {
     }
 
     // Convert to PNG buffer
-    const canvas = new OffscreenCanvas(OUTPUT_SIZE, OUTPUT_SIZE);
-    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
-    ctx.putImageData(new ImageData(imageData, OUTPUT_SIZE, OUTPUT_SIZE), 0, 0);
-
-    const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
-    return await blob.arrayBuffer();
+    return renderImageToPng(imageData, OUTPUT_SIZE, OUTPUT_SIZE);
 }
 
 export async function processTile({ zoom, x, y, type }) {
@@ -552,4 +547,37 @@ export async function processTile({ zoom, x, y, type }) {
 export function clearTileCaches() {
     demCache.clear();
     demCapabilities.clear();
+}
+
+async function renderImageToPng(imageData, width, height) {
+    if (typeof OffscreenCanvas !== 'undefined') {
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
+        ctx.putImageData(new ImageData(imageData, width, height), 0, 0);
+
+        const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
+        return blob.arrayBuffer();
+    }
+
+    if (typeof document !== 'undefined') {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(new ImageData(imageData, width, height), 0, 0);
+
+        const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob((result) => {
+                if (result) {
+                    resolve(result);
+                } else {
+                    reject(new Error('Failed to create DEM PNG blob.'));
+                }
+            }, 'image/png', 1.0);
+        });
+
+        return blob.arrayBuffer();
+    }
+
+    throw new Error('Canvas APIs are not available for DEM processing.');
 }
