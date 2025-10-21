@@ -35,15 +35,42 @@ const contourDemSources = {
     })
 };
 
+function resolveProtocolUrl(source, key, options) {
+    const candidate = source?.[key];
+    if (typeof candidate === 'function') {
+        try {
+            return candidate(options);
+        } catch (error) {
+            console.error(`Failed to resolve ${key} from contour DEM source:`, error);
+        }
+    }
+    return candidate;
+}
+
 function getContourDemSource(terrainId) {
     return contourDemSources[terrainId] || contourDemSources['dem'];
 }
 
 export function getContourTileUrl(terrainId) {
-    return getContourDemSource(terrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
+    const url = resolveProtocolUrl(
+        getContourDemSource(terrainId),
+        'contourProtocolUrl',
+        CONTOUR_PROTOCOL_BASE_OPTIONS
+    );
+    if (!url) {
+        throw new Error('Unable to resolve contour protocol URL for terrain source.');
+    }
+    return url;
 }
 
 function createMapSources() {
+    let defaultContourTiles = [];
+    try {
+        defaultContourTiles = [getContourTileUrl('dem')];
+    } catch (error) {
+        console.error('Failed to resolve default contour tiles:', error);
+    }
+
     return {
         'custom-dem': {
             type: 'raster-dem',
@@ -81,13 +108,20 @@ function createMapSources() {
         'dem': {
             type: 'raster-dem',
             encoding: 'terrarium',
-            tiles: [getContourDemSource('dem').sharedDemProtocolUrl],
+            tiles: (() => {
+                const url = resolveProtocolUrl(
+                    getContourDemSource('dem'),
+                    'sharedDemProtocolUrl',
+                    CONTOUR_PROTOCOL_BASE_OPTIONS
+                );
+                return url ? [url] : [];
+            })(),
             maxzoom: 14,
             tileSize: 256
         },
         'contours': {
             type: 'vector',
-            tiles: [getContourTileUrl('dem')],
+            tiles: defaultContourTiles,
             maxzoom: 18
         },
         'buildings': {
