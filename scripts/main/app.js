@@ -29,8 +29,7 @@ const contourDemSources = {
             maxzoom: 14,
             worker: false
         }),
-        supportsContourProtocol: true,
-        tileSize: 256
+        supportsContourProtocol: true
     },
     'mapterhorn-dem': {
         demSource: new mlcontour.DemSource({
@@ -39,8 +38,7 @@ const contourDemSources = {
             maxzoom: 14,
             worker: false
         }),
-        supportsContourProtocol: true,
-        tileSize: 512
+        supportsContourProtocol: true
     },
     'custom-dem': {
         demSource: new mlcontour.DemSource({
@@ -77,12 +75,7 @@ function getSupportedContourTerrainId(terrainId) {
 
 function getContourTileUrl(terrainId) {
     const supportedTerrainId = getSupportedContourTerrainId(terrainId);
-    const config = contourDemSources[supportedTerrainId];
-    const contourOptions = { ...CONTOUR_PROTOCOL_BASE_OPTIONS };
-    if (config?.tileSize) {
-        contourOptions.tileSize = config.tileSize;
-    }
-    return getContourDemSource(supportedTerrainId).contourProtocolUrl(contourOptions);
+    return getContourDemSource(supportedTerrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
 }
 
 
