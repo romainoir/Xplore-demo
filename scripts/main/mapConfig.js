@@ -1,5 +1,5 @@
 import { layerStyles } from '../modules/layers.js';
-import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js';
+import { setupTerrainProtocol, setupMapterhornProtocol, loadMapterhornDemTile, loadCustomDemTile } from '../modules/terrain/terrainprotocol.js';
 
 const CONTOUR_PROTOCOL_BASE_OPTIONS = {
     thresholds: {
@@ -22,13 +22,13 @@ const contourDemSources = {
         worker: false
     }),
     'mapterhorn-dem': new mlcontour.DemSource({
-        url: 'mapterhorn://{z}/{x}/{y}',
+        loadTile: (z, x, y, signal) => loadMapterhornDemTile(z, x, y, signal),
         encoding: 'terrarium',
         maxzoom: 14,
         worker: false
     }),
     'custom-dem': new mlcontour.DemSource({
-        url: 'customdem://{z}/{x}/{y}',
+        loadTile: (z, x, y, signal) => loadCustomDemTile(z, x, y, 'elevation', signal),
         encoding: 'mapbox',
         maxzoom: 17,
         worker: false
