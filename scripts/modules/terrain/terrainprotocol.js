@@ -1,4 +1,10 @@
 import { processTile, clearTileCaches } from './demProcessor.js';
+import {
+    ensureMapterhornProtocolInstance,
+    getMapterhornProtocolInstance,
+    getPMTilesProtocolCtor,
+    computeMapterhornTileUrl
+} from './mapterhornTiles.js';
 const SUPPORTS_WORKERS = typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
 const DEFAULT_MAX_WORKERS = 6;
 
@@ -219,25 +225,7 @@ export async function setupTerrainProtocol(maplibregl) {
     };
 }
 
-let mapterhornProtocolInstance = null;
 let mapterhornProtocolRegistered = false;
-let pmtilesProtocolCtor = null;
-
-function resolvePMTilesProtocolCtor() {
-    if (pmtilesProtocolCtor) {
-        return pmtilesProtocolCtor;
-    }
-
-    const globalPmtiles = typeof globalThis !== 'undefined' ? globalThis.pmtiles : undefined;
-    const ProtocolCtor = globalPmtiles?.Protocol;
-
-    if (!ProtocolCtor) {
-        throw new Error('PMTiles global Protocol not available. Ensure pmtiles.js is loaded before app.js.');
-    }
-
-    pmtilesProtocolCtor = ProtocolCtor;
-    return pmtilesProtocolCtor;
-}
 
 export function setupMapterhornProtocol(maplibregl) {
     if (mapterhornProtocolRegistered) {
@@ -245,28 +233,24 @@ export function setupMapterhornProtocol(maplibregl) {
     }
 
     try {
-        const ProtocolCtor = resolvePMTilesProtocolCtor();
-        mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
+        ensureMapterhornProtocolInstance();
     } catch (error) {
         console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
         throw error;
     }
 
     maplibregl.addProtocol('mapterhorn', async (params, abortController) => {
-        if (!mapterhornProtocolInstance) {
-            try {
-                const ProtocolCtor = await getPMTilesProtocolCtor();
-                mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
-            } catch (error) {
-                console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
-                throw error;
-            }
+        let protocolInstance;
+        try {
+            protocolInstance = await getMapterhornProtocolInstance();
+        } catch (error) {
+            console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
+            throw error;
         }
 
         const [z, x, y] = params.url.replace('mapterhorn://', '').split('/').map(Number);
-        const name = z <= 12 ? 'planet' : `6-${x >> (z - 6)}-${y >> (z - 6)}`;
-        const url = `pmtiles://https://download.mapterhorn.com/${name}.pmtiles/${z}/${x}/${y}.webp`;
-        const response = await mapterhornProtocolInstance.tile({ ...params, url }, abortController);
+        const url = computeMapterhornTileUrl(z, x, y);
+        const response = await protocolInstance.tile({ ...params, url }, abortController);
 
         if (!response || response.data == null) {
             throw new Error(`Tile z=${z} x=${x} y=${y} not found.`);
@@ -276,9 +260,7 @@ export function setupMapterhornProtocol(maplibregl) {
     });
 
     mapterhornProtocolRegistered = true;
-    if (!pmtilesProtocolCtor) {
-        getPMTilesProtocolCtor().catch((error) => {
-            console.error('Deferred PMTiles module load failed:', error);
-        });
-    }
+    getPMTilesProtocolCtor().catch((error) => {
+        console.error('Deferred PMTiles module load failed:', error);
+    });
 }

@@ -1,5 +1,12 @@
+import { processTile } from './demProcessor.js';
+import { fetchMapterhornTile } from './mapterhornTiles.js';
+
 const GLOBAL_SCOPE = typeof self !== 'undefined' ? self : (typeof window !== 'undefined' ? window : globalThis);
 const DEFAULT_MIME_TYPE = 'image/png';
+const CUSTOM_DEM_PREFIX = 'customdem://';
+const MAPTERHORN_PREFIX = 'mapterhorn://';
+const CUSTOM_DEM_REGEX = /^customdem:\/\/(\d+)\/(\d+)\/(\d+)(?:\/.*)?$/;
+const MAPTERHORN_REGEX = /^mapterhorn:\/\/(\d+)\/(\d+)\/(\d+)$/;
 
 function assertFetchAvailable() {
     const fetchFn = GLOBAL_SCOPE?.fetch;
@@ -9,13 +16,70 @@ function assertFetchAvailable() {
     return fetchFn.bind(GLOBAL_SCOPE);
 }
 
+async function fetchCustomDemTile(url) {
+    const match = url.match(CUSTOM_DEM_REGEX);
+    if (!match) {
+        throw new Error(`Invalid custom DEM URL: ${url}`);
+    }
+
+    const [, z, x, y] = match;
+    return processTile({
+        zoom: parseInt(z, 10),
+        x: parseInt(x, 10),
+        y: parseInt(y, 10),
+        type: 'elevation'
+    });
+}
+
+function normaliseUrl(input) {
+    if (typeof input === 'string') {
+        return input;
+    }
+
+    if (input instanceof URL) {
+        return input.toString();
+    }
+
+    if (input && typeof input === 'object') {
+        if (typeof input.url === 'string') {
+            return input.url;
+        }
+
+        if (typeof input.toString === 'function') {
+            return input.toString();
+        }
+    }
+
+    return String(input);
+}
+
+async function fetchMapterhornDemTile(url) {
+    const match = url.match(MAPTERHORN_REGEX);
+    if (!match) {
+        throw new Error(`Invalid Mapterhorn DEM URL: ${url}`);
+    }
+
+    const [, z, x, y] = match.map(Number);
+    return fetchMapterhornTile(z, x, y);
+}
+
 export async function fetchDemTile(url, options = {}) {
+    const normalizedUrl = normaliseUrl(url);
+
+    if (normalizedUrl.startsWith(CUSTOM_DEM_PREFIX)) {
+        return fetchCustomDemTile(normalizedUrl);
+    }
+
+    if (normalizedUrl.startsWith(MAPTERHORN_PREFIX)) {
+        return fetchMapterhornDemTile(normalizedUrl);
+    }
+
     const fetchFn = assertFetchAvailable();
     const { signal, headers, credentials, cache, mode } = options;
 
-    const response = await fetchFn(url, { signal, headers, credentials, cache, mode });
+    const response = await fetchFn(normalizedUrl, { signal, headers, credentials, cache, mode });
     if (!response.ok) {
-        throw new Error(`Failed to fetch DEM tile (${response.status} ${response.statusText}) for ${url}`);
+        throw new Error(`Failed to fetch DEM tile (${response.status} ${response.statusText}) for ${normalizedUrl}`);
     }
 
     return response.arrayBuffer();
