@@ -251,6 +251,7 @@ const map = new maplibregl.Map({
 let currentTerrain = 'custom-dem';
 let planIGNLayers = [];
 let terrainControlHandle = null;
+let previousTerrainViewState = null;
 
 const terrainDependentLayerIds = ['normal-layer', 'slope-layer', 'aspect-layer'];
 
@@ -389,9 +390,34 @@ terrainControlHandle = new maplibregl.TerrainControl({
     onToggle: (enabled) => {
         if (enabled) {
             map.setTerrain({ source: currentTerrain, exaggeration: 1.0 });
+            if (previousTerrainViewState) {
+                const { pitch, bearing } = previousTerrainViewState;
+                previousTerrainViewState = null;
+                const needsPitchRestore = Math.abs(map.getPitch() - pitch) > 0.1;
+                const needsBearingRestore = Math.abs(map.getBearing() - bearing) > 0.1;
+                if (needsPitchRestore || needsBearingRestore) {
+                    map.easeTo({
+                        pitch,
+                        bearing,
+                        duration: 600,
+                        essential: true
+                    });
+                }
+            }
         } else {
+            previousTerrainViewState = {
+                pitch: map.getPitch(),
+                bearing: map.getBearing()
+            };
             // Disable 3D mode
             map.setTerrain(null);
+            if (map.getPitch() !== 0) {
+                map.easeTo({
+                    pitch: 0,
+                    duration: 400,
+                    essential: true
+                });
+            }
         }
     }
 });
