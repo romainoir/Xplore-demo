@@ -1,4 +1,4 @@
-import { processTile } from './demProcessor.js';
+import { processTile } from '../modules/terrain/demProcessor.js';
 
 self.onmessage = async (event) => {
     const { id, payload, type } = event.data;
