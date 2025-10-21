@@ -1,5 +1,6 @@
 import { layerStyles } from '../modules/layers.js';
 import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js';
+import { demSourceHooks } from '../modules/terrain/demFetchers.js';
 
 const CONTOUR_PROTOCOL_BASE_OPTIONS = {
     thresholds: {
@@ -14,20 +15,27 @@ const CONTOUR_PROTOCOL_BASE_OPTIONS = {
     contourLayer: 'contours'
 };
 
+function createDemSource(options) {
+    return new mlcontour.DemSource({
+        ...options,
+        ...demSourceHooks
+    });
+}
+
 const contourDemSources = {
-    'dem': new mlcontour.DemSource({
+    'dem': createDemSource({
         url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
         encoding: 'terrarium',
         maxzoom: 14,
         worker: false
     }),
-    'mapterhorn-dem': new mlcontour.DemSource({
+    'mapterhorn-dem': createDemSource({
         url: 'mapterhorn://{z}/{x}/{y}',
         encoding: 'terrarium',
         maxzoom: 14,
         worker: false
     }),
-    'custom-dem': new mlcontour.DemSource({
+    'custom-dem': createDemSource({
         url: 'customdem://{z}/{x}/{y}',
         encoding: 'mapbox',
         maxzoom: 17,
@@ -258,7 +266,7 @@ export function initializeMap(maplibregl) {
 }
 
 export function setupMapProtocols(maplibregl) {
-    Object.values(contourDemSources).forEach(source => source.setupMaplibre(maplibregl));
+    Object.values(contourDemSources).forEach(source => source.setupMaplibre(maplibregl, demSourceHooks));
     setupTerrainProtocol(maplibregl);
     setupMapterhornProtocol(maplibregl);
 }
