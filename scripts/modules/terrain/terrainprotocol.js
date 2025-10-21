@@ -223,63 +223,6 @@ let mapterhornProtocolInstance = null;
 let mapterhornProtocolRegistered = false;
 let pmtilesProtocolCtor = null;
 
-function toArrayBuffer(data) {
-    if (data instanceof ArrayBuffer) {
-        return data;
-    }
-
-    if (data && data.buffer instanceof ArrayBuffer) {
-        if (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength) {
-            return data.buffer;
-        }
-        return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    }
-
-    throw new Error('Unsupported DEM tile data format.');
-}
-
-function normalizeCoordinate(value, name) {
-    const parsed = typeof value === 'number' ? value : parseInt(value, 10);
-    if (!Number.isFinite(parsed)) {
-        throw new Error(`Invalid ${name} value: ${value}`);
-    }
-    return parsed;
-}
-
-function createAbortError(signal) {
-    if (signal?.reason instanceof Error) {
-        return signal.reason;
-    }
-
-    if (typeof DOMException === 'function') {
-        return new DOMException('Aborted', 'AbortError');
-    }
-
-    const error = new Error('Aborted');
-    error.name = 'AbortError';
-    return error;
-}
-
-export async function loadCustomDemTile(z, x, y, type = 'elevation', signal) {
-    const zoom = normalizeCoordinate(z, 'zoom');
-    const tileX = normalizeCoordinate(x, 'x');
-    const tileY = normalizeCoordinate(y, 'y');
-
-    if (signal?.aborted) {
-        throw createAbortError(signal);
-    }
-
-    const payload = { zoom, x: tileX, y: tileY, type };
-
-    try {
-        const data = await workerPool.schedule(payload);
-        return toArrayBuffer(data);
-    } catch (error) {
-        console.error(`Failed to load custom DEM tile ${zoom}/${tileX}/${tileY}:`, error);
-        throw error;
-    }
-}
-
 function resolvePMTilesProtocolCtor() {
     if (pmtilesProtocolCtor) {
         return pmtilesProtocolCtor;
@@ -296,72 +239,14 @@ function resolvePMTilesProtocolCtor() {
     return pmtilesProtocolCtor;
 }
 
-function ensureMapterhornProtocolInstance() {
-    if (mapterhornProtocolInstance) {
-        return mapterhornProtocolInstance;
-    }
-
-    const ProtocolCtor = resolvePMTilesProtocolCtor();
-    mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
-    return mapterhornProtocolInstance;
-}
-
-function buildMapterhornTileUrl(z, x, y) {
-    const name = z <= 12 ? 'planet' : `6-${x >> (z - 6)}-${y >> (z - 6)}`;
-    return `pmtiles://https://download.mapterhorn.com/${name}.pmtiles/${z}/${x}/${y}.webp`;
-}
-
-export async function loadMapterhornDemTile(z, x, y, signal) {
-    const zoom = normalizeCoordinate(z, 'zoom');
-    const tileX = normalizeCoordinate(x, 'x');
-    const tileY = normalizeCoordinate(y, 'y');
-
-    if (signal?.aborted) {
-        throw createAbortError(signal);
-    }
-
-    let protocol;
-    try {
-        protocol = ensureMapterhornProtocolInstance();
-    } catch (error) {
-        console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
-        throw error;
-    }
-
-    const url = buildMapterhornTileUrl(zoom, tileX, tileY);
-
-    try {
-        let abortController;
-        if (typeof AbortController !== 'undefined' && signal && typeof signal.addEventListener === 'function') {
-            abortController = new AbortController();
-
-            if (signal.aborted) {
-                abortController.abort(signal.reason);
-            } else {
-                signal.addEventListener('abort', () => abortController.abort(signal.reason), { once: true });
-            }
-        }
-
-        const response = await protocol.tile({ url }, abortController);
-
-        if (!response || response.data == null) {
-            throw new Error(`Tile z=${zoom} x=${tileX} y=${tileY} not found.`);
-        }
-
-        return toArrayBuffer(response.data);
-    } catch (error) {
-        console.error(`Failed to load Mapterhorn DEM tile ${zoom}/${tileX}/${tileY}:`, error);
-        throw error;
-    }
-}
-
 export function setupMapterhornProtocol(maplibregl) {
     if (mapterhornProtocolRegistered) {
         return;
     }
 
     try {
-        ensureMapterhornProtocolInstance();
+        const ProtocolCtor = resolvePMTilesProtocolCtor();
+        mapterhornProtocolInstance = new ProtocolCtor({ metadata: true, errorOnMissingTile: true });
     } catch (error) {
         console.error('Failed to initialize PMTiles protocol for Mapterhorn tiles:', error);
         throw error;
@@ -379,7 +264,8 @@ export function setupMapterhornProtocol(maplibregl) {
         }
 
         const [z, x, y] = params.url.replace('mapterhorn://', '').split('/').map(Number);
-        const url = buildMapterhornTileUrl(z, x, y);
+        const name = z <= 12 ? 'planet' : `6-${x >> (z - 6)}-${y >> (z - 6)}`;
+        const url = `pmtiles://https://download.mapterhorn.com/${name}.pmtiles/${z}/${x}/${y}.webp`;
         const response = await mapterhornProtocolInstance.tile({ ...params, url }, abortController);
 
         if (!response || response.data == null) {

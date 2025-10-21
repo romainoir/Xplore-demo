@@ -43,18 +43,7 @@ function updateContourSource(terrainId) {
         return;
     }
 
-    let tiles;
-    try {
-        tiles = [getContourTileUrl(terrainId)].filter(Boolean);
-    } catch (error) {
-        console.error('Failed to resolve contour tiles for terrain:', terrainId, error);
-        return;
-    }
-
-    if (tiles.length === 0) {
-        console.warn('No contour tiles available for terrain:', terrainId);
-        return;
-    }
+    const tiles = [getContourTileUrl(terrainId)];
 
     if (typeof contourSource.setTiles === 'function') {
         contourSource.setTiles(tiles);

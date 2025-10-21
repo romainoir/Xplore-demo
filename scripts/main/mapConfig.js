@@ -1,5 +1,5 @@
 import { layerStyles } from '../modules/layers.js';
-import { setupTerrainProtocol, setupMapterhornProtocol, loadMapterhornDemTile, loadCustomDemTile } from '../modules/terrain/terrainprotocol.js';
+import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js';
 
 const CONTOUR_PROTOCOL_BASE_OPTIONS = {
     thresholds: {
@@ -22,55 +22,28 @@ const contourDemSources = {
         worker: false
     }),
     'mapterhorn-dem': new mlcontour.DemSource({
-        loadTile: (z, x, y, signal) => loadMapterhornDemTile(z, x, y, signal),
+        url: 'mapterhorn://{z}/{x}/{y}',
         encoding: 'terrarium',
         maxzoom: 14,
         worker: false
     }),
     'custom-dem': new mlcontour.DemSource({
-        loadTile: (z, x, y, signal) => loadCustomDemTile(z, x, y, 'elevation', signal),
+        url: 'customdem://{z}/{x}/{y}',
         encoding: 'mapbox',
         maxzoom: 17,
         worker: false
     })
 };
 
-function resolveProtocolUrl(source, key, options) {
-    const candidate = source?.[key];
-    if (typeof candidate === 'function') {
-        try {
-            return candidate(options);
-        } catch (error) {
-            console.error(`Failed to resolve ${key} from contour DEM source:`, error);
-        }
-    }
-    return candidate;
-}
-
 function getContourDemSource(terrainId) {
     return contourDemSources[terrainId] || contourDemSources['dem'];
 }
 
 export function getContourTileUrl(terrainId) {
-    const url = resolveProtocolUrl(
-        getContourDemSource(terrainId),
-        'contourProtocolUrl',
-        CONTOUR_PROTOCOL_BASE_OPTIONS
-    );
-    if (!url) {
-        throw new Error('Unable to resolve contour protocol URL for terrain source.');
-    }
-    return url;
+    return getContourDemSource(terrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
 }
 
 function createMapSources() {
-    let defaultContourTiles = [];
-    try {
-        defaultContourTiles = [getContourTileUrl('dem')];
-    } catch (error) {
-        console.error('Failed to resolve default contour tiles:', error);
-    }
-
     return {
         'custom-dem': {
             type: 'raster-dem',
@@ -108,20 +81,13 @@ function createMapSources() {
         'dem': {
             type: 'raster-dem',
             encoding: 'terrarium',
-            tiles: (() => {
-                const url = resolveProtocolUrl(
-                    getContourDemSource('dem'),
-                    'sharedDemProtocolUrl',
-                    CONTOUR_PROTOCOL_BASE_OPTIONS
-                );
-                return url ? [url] : [];
-            })(),
+            tiles: [getContourDemSource('dem').sharedDemProtocolUrl],
             maxzoom: 14,
             tileSize: 256
         },
         'contours': {
             type: 'vector',
-            tiles: defaultContourTiles,
+            tiles: [getContourTileUrl('dem')],
             maxzoom: 18
         },
         'buildings': {
