@@ -150,6 +150,17 @@ const layerStyles = {
             'hillshade-illumination-direction': 80,
         },
     },
+    hillshadeLayerTerrarium: {
+        id: 'hillshade-layer-terrarium',
+        type: 'hillshade',
+        source: 'dem',
+        layout: { visibility: 'none' },
+        paint: {
+            'hillshade-exaggeration': 0.3,
+            'hillshade-illumination-anchor': 'map',
+            'hillshade-illumination-direction': 80,
+        },
+    },
     hillshadeLayerMapterhorn: {
         id: 'hillshade-layer-mapterhorn',
         type: 'hillshade',

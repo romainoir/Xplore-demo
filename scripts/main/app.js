@@ -195,6 +195,7 @@ const map = new maplibregl.Map({
             layerStyles.sentinel2Layer,
             layerStyles.contours,
             layerStyles.contourText,
+            layerStyles.hillshadeLayerTerrarium,
             layerStyles.hillshadeLayer,
             layerStyles.hillshadeLayerMapterhorn,
             layerStyles.snowLayer,
@@ -284,43 +285,43 @@ function setTerrainDependentLayersEnabled(enabled) {
 }
 
 function updateHillshadeVisibility(hillshadeEnabled) {
-    const activeLayer = currentTerrain === 'mapterhorn-dem' ? 'hillshade-layer-mapterhorn' : 'hillshade-layer';
-    const inactiveLayer = currentTerrain === 'mapterhorn-dem' ? 'hillshade-layer' : 'hillshade-layer-mapterhorn';
+    const terrainHillshadeMap = {
+        'custom-dem': 'hillshade-layer',
+        'mapterhorn-dem': 'hillshade-layer-mapterhorn',
+        'dem': 'hillshade-layer-terrarium'
+    };
 
-    if (map.getLayer(activeLayer)) {
-        map.setLayoutProperty(activeLayer, 'visibility', hillshadeEnabled ? 'visible' : 'none');
-    }
+    const activeLayer = terrainHillshadeMap[currentTerrain] || terrainHillshadeMap['custom-dem'];
 
-    if (map.getLayer(inactiveLayer)) {
-        map.setLayoutProperty(inactiveLayer, 'visibility', 'none');
-    }
+    Object.values(terrainHillshadeMap).forEach(layerId => {
+        if (!map.getLayer(layerId)) {
+            return;
+        }
+        const visibility = hillshadeEnabled && layerId === activeLayer ? 'visible' : 'none';
+        map.setLayoutProperty(layerId, 'visibility', visibility);
+    });
 }
 
 function setTerrainSource(sourceId, terrainWarningNote = null) {
     if (!terrainWarningNote && terrainWarningNoteElement) {
         terrainWarningNote = terrainWarningNoteElement;
     }
-    if (sourceId !== 'mapterhorn-dem' && sourceId !== 'custom-dem') {
+    const supportedTerrains = new Set(['custom-dem', 'mapterhorn-dem', 'dem']);
+    if (!supportedTerrains.has(sourceId)) {
         sourceId = 'custom-dem';
     }
 
     const hillshadeButton = document.querySelector('.layer-option[data-layer="hillshade-layer"]');
     const hillshadeEnabled = hillshadeButton ? hillshadeButton.classList.contains('active') : false;
 
-    if (sourceId === 'mapterhorn-dem') {
-        currentTerrain = 'mapterhorn-dem';
-        map.setTerrain({ source: 'mapterhorn-dem', exaggeration: 1.0 });
-        setTerrainDependentLayersEnabled(false);
-        if (terrainWarningNote) {
-            terrainWarningNote.classList.add('visible');
-        }
-    } else {
-        currentTerrain = 'custom-dem';
-        map.setTerrain({ source: 'custom-dem', exaggeration: 1.0 });
-        setTerrainDependentLayersEnabled(true);
-        if (terrainWarningNote) {
-            terrainWarningNote.classList.remove('visible');
-        }
+    currentTerrain = sourceId;
+    map.setTerrain({ source: sourceId, exaggeration: 1.0 });
+
+    const supportsTerrainAnalysis = sourceId === 'custom-dem';
+    setTerrainDependentLayersEnabled(supportsTerrainAnalysis);
+
+    if (terrainWarningNote) {
+        terrainWarningNote.classList.toggle('visible', !supportsTerrainAnalysis);
     }
 
     if (terrainControlHandle) {
@@ -456,6 +457,7 @@ function setupLayerControls() {
     const layerOptions = layerControl.querySelectorAll('.layer-option');
     const terrainOptionButtons = layerControl.querySelectorAll('.terrain-option');
     const terrainWarningNote = layerControl.querySelector('.terrain-note');
+    const basemapLayerIds = ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'];
 
     terrainWarningNoteElement = terrainWarningNote;
 
@@ -532,29 +534,27 @@ function setupLayerControls() {
             const layerId = e.currentTarget.dataset.layer;
             
             // Handle basemaps and hillshade
-            if (['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer', 'hillshade-layer'].includes(layerId)) {
-                const basemapOptions = Array.from(layerOptions).filter(opt => 
-                    ['orthophotos-layer', 'planIGN-layer', 'Opentopo-layer'].includes(opt.dataset.layer)
-                );
+            if (basemapLayerIds.includes(layerId)) {
+                const basemapOptions = Array.from(layerOptions).filter(opt => basemapLayerIds.includes(opt.dataset.layer));
 
-                if (layerId === 'hillshade-layer') {
-                    e.currentTarget.classList.toggle('active');
-                    const hillshadeEnabled = e.currentTarget.classList.contains('active');
-                    updateHillshadeVisibility(hillshadeEnabled);
+                const wasActive = e.currentTarget.classList.contains('active');
+                basemapOptions.forEach(opt => opt.classList.remove('active'));
 
-                    if (hillshadeEnabled && !basemapOptions.some(opt => opt.classList.contains('active'))) {
-                        updateBasemapVisibility();
-                    }
+                if (!wasActive) {
+                    e.currentTarget.classList.add('active');
+                    updateBasemapVisibility(layerId);
                 } else {
-                    const wasActive = e.currentTarget.classList.contains('active');
-                    basemapOptions.forEach(opt => opt.classList.remove('active'));
-                    
-                    if (!wasActive) {
-                        e.currentTarget.classList.add('active');
-                        updateBasemapVisibility(layerId);
-                    } else {
-                        updateBasemapVisibility();
-                    }
+                    updateBasemapVisibility();
+                }
+            } else if (layerId === 'hillshade-layer') {
+                const basemapOptions = Array.from(layerOptions).filter(opt => basemapLayerIds.includes(opt.dataset.layer));
+                const wasActive = e.currentTarget.classList.contains('active');
+                e.currentTarget.classList.toggle('active');
+                const hillshadeEnabled = !wasActive;
+                updateHillshadeVisibility(hillshadeEnabled);
+
+                if (hillshadeEnabled && !basemapOptions.some(opt => opt.classList.contains('active'))) {
+                    updateBasemapVisibility();
                 }
             } else {
                 // Handle overlay layers
@@ -586,6 +586,15 @@ function setupLayerControls() {
                     if (sentinel2Controls) {
                         sentinel2Controls.style.display = isActive ? 'none' : 'block';
                     }
+                }
+                // Handle contour overlays
+                else if (layerId === 'contours') {
+                    const visibility = isActive ? 'none' : 'visible';
+                    ['contours', 'contour-text'].forEach(id => {
+                        if (map.getLayer(id)) {
+                            map.setLayoutProperty(id, 'visibility', visibility);
+                        }
+                    });
                 }
                 // Handle regular raster layers
                 else if (['Snow-layer', 'heatmap-layer', 'Slope-layer'].includes(layerId)) {

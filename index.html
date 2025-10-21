@@ -37,6 +37,7 @@
     <div class="layer-control">
         <div class="tab-buttons">
             <button class="tab-button active" data-tab="basemaps">Basemaps</button>
+            <button class="tab-button" data-tab="elevation">Elevation</button>
             <button class="tab-button" data-tab="overlays">Overlays</button>
             <button class="tab-button" data-tab="features">Features</button>
         </div>
@@ -48,16 +49,30 @@
                 <button class="layer-option" data-layer="planIGN-layer">
                   <img src="assets/images/ui/plan.png" alt="IGN Plan" class="basemap-icon">IGN Plan
                 </button>
-                 <button class="layer-option" data-layer="hillshade-layer">
-                  <img src="assets/images/ui/hillshade.png" alt="Open Topo" class="basemap-icon">hillshade
-                </button>
                  <button class="layer-option" data-layer="Opentopo-layer">
                   <img src="assets/images/ui/topo.png" alt="Open Topo" class="basemap-icon">Open Topo
                 </button>
             </div>
         </div>
+        <div class="tab-content" id="elevation">
+            <div class="terrain-provider">
+                <strong>Elevation source</strong>
+                <div class="terrain-option-group">
+                    <button class="terrain-option" data-terrain="dem">Terrarium (LD)</button>
+                    <button class="terrain-option" data-terrain="mapterhorn-dem">Mapterhorn (HD)</button>
+                    <button class="terrain-option active" data-terrain="custom-dem">IGN (UltraHD)</button>
+                </div>
+                <p class="terrain-note">Slope, aspect, and normal map overlays are only available with the IGN (UltraHD) source.</p>
+            </div>
+        </div>
         <div class="tab-content" id="overlays">
             <div class="layer-options">
+                <button class="layer-option" data-layer="hillshade-layer">
+                    <img src="assets/images/ui/hillshade.png" alt="Hillshade" class="overlay-icon">Hillshade
+                </button>
+                <button class="layer-option" data-layer="contours">
+                    <img src="assets/images/ui/contours.png" alt="Contour Lines" class="overlay-icon">Contour Lines
+                </button>
                 <button class="layer-option" data-layer="Snow-layer">
                     <img src="assets/images/ui/snow.png" alt="Snow cover" class="overlay-icon">Snow cover
                 </button>
@@ -79,14 +94,6 @@
                   <button class="layer-option" data-layer="aspect-layer">
                     <img src="assets/images/ui/aspect.png" alt="aspect-layer" class="overlay-icon">aspect-layer
                    </button>
-            </div>
-            <div class="terrain-provider">
-                <strong>Elevation source</strong>
-                <div class="terrain-option-group">
-                    <button class="terrain-option active" data-terrain="custom-dem">IGN (processed)</button>
-                    <button class="terrain-option" data-terrain="mapterhorn-dem">Mapterhorn DEM</button>
-                </div>
-                <p class="terrain-note">Slope, aspect, and normal map overlays are unavailable with the Mapterhorn source.</p>
             </div>
             <div id="sentinel2-controls" style="display: none;">
                 <strong>Sentinel-2 Controls</strong>
@@ -113,10 +120,6 @@
                       <img src="assets/images/ui/building.png" alt="3D Buildings" class="layer-toggle-icon">
                       3D Buildings
                   </button>
-                  <button class="layer-toggle-button" data-layer="contours">
-                      <img src="assets/images/ui/contours.png" alt="Contour Lines" class="layer-toggle-icon">
-                      Contour Lines
-                   </button>
                    <button class="layer-toggle-button" data-layer="refuges-layer">
                       <img src="assets/images/markers/shelter.png" alt="Refuges.info" class="layer-toggle-icon">
                       Refuges.info
