@@ -25,6 +25,9 @@ function throttle(func, limit) {
 
 let directionsManager;
 
+// Register custom protocols before initializing the map
+setupMapProtocols(maplibregl);
+
 // Initialize MapLibre Map
 const map = initializeMap(maplibregl);
 
@@ -150,9 +153,6 @@ function setTerrainSource(sourceId, terrainWarningNote = null) {
 
     updateHillshadeVisibility(hillshadeEnabled);
 }
-
-// Setup MapLibre protocol and controls
-setupMapProtocols(maplibregl);
 
 const geocoderApi = {
     forwardGeocode: async (config) => {
