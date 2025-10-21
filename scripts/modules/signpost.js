@@ -1,4 +1,4 @@
-import { map } from './app.js';
+import { map } from '../main/app.js';
 // =====================
 // Distance and Time Calculations
 // =====================

@@ -1,6 +1,8 @@
 // thunderforest.js
-import { map } from './app.js';
+import { map } from '../main/app.js';
 import { layerStyles } from './layers.js';
+
+const ICON_BASE_URL = new URL('../../assets/images/markers/', import.meta.url);
 
 async function initializeThunderforestLayers() {
     try {
@@ -143,7 +145,7 @@ async function initializeThunderforestLayers() {
                         console.warn(`Failed to load icon: ${iconName}`);
                         resolve(); // Resolve anyway to continue loading other icons
                     };
-                    img.src = `/${iconName}.png`; // Adjust path as needed
+                    img.src = new URL(`${iconName}.png`, ICON_BASE_URL).href;
                 })
             )
         );

@@ -2677,14 +2677,14 @@ map.on('load', async () => {
 
     // Icon configuration
     const iconNames = {
-    cabane: './icons/shelter.png',
-    refuge: './icons/shelter.png',
-    gite: './icons/shelter.png',
-    pt_eau: './icons/eau.png',
-    sommet: './icons/summit.png',
-    pt_passage: './icons/summit.png',
-    bivouac: './icons/bivouac.png',
-    lac: './icons/lago.png'
+    cabane: '../../assets/images/markers/shelter.png',
+    refuge: '../../assets/images/markers/shelter.png',
+    gite: '../../assets/images/markers/shelter.png',
+    pt_eau: '../../assets/images/markers/eau.png',
+    sommet: '../../assets/images/markers/summit.png',
+    pt_passage: '../../assets/images/markers/summit.png',
+    bivouac: '../../assets/images/markers/bivouac.png',
+    lac: '../../assets/images/ui/lago.png'
     };
 
     // Icon Loading Function

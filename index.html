@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <link rel="apple-touch-icon" href="/icon.png">
+    <link rel="apple-touch-icon" href="/assets/images/ui/icon.png">
     <title>Xplore</title>
     <link href="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.css" rel="stylesheet" />
     <script src="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
@@ -18,11 +18,11 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
-    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="apple-touch-icon" href="assets/images/ui/icon.png">
 </head>
 <body>
     <div id="loading-screen" class="loading-screen">
-        <img src="logo.png" alt="Logo" class="loading-logo">
+        <img src="assets/images/ui/logo.png" alt="Logo" class="loading-logo">
     </div>
     <div id="map"></div>
 
@@ -32,7 +32,7 @@
     </button>
     <!-- Direction menu toggle -->
     <button class="directions-toggle" aria-label="Toggle Directions Menu">
-        <img src="directions.png" alt="Directions" class="directions-icon">
+        <img src="assets/images/ui/directions.png" alt="Directions" class="directions-icon">
     </button>
     <div class="layer-control">
         <div class="tab-buttons">
@@ -43,41 +43,41 @@
         <div class="tab-content active" id="basemaps">
             <div class="layer-options">
                 <button class="layer-option active" data-layer="orthophotos-layer">
-                  <img src="ortho.png" alt="IGN Ortho" class="basemap-icon">IGN Ortho
+                  <img src="assets/images/ui/ortho.png" alt="IGN Ortho" class="basemap-icon">IGN Ortho
                 </button>
                 <button class="layer-option" data-layer="planIGN-layer">
-                  <img src="plan.png" alt="IGN Plan" class="basemap-icon">IGN Plan
+                  <img src="assets/images/ui/plan.png" alt="IGN Plan" class="basemap-icon">IGN Plan
                 </button>
                  <button class="layer-option" data-layer="hillshade-layer">
-                  <img src="hillshade.png" alt="Open Topo" class="basemap-icon">hillshade
+                  <img src="assets/images/ui/hillshade.png" alt="Open Topo" class="basemap-icon">hillshade
                 </button>
                  <button class="layer-option" data-layer="Opentopo-layer">
-                  <img src="topo.png" alt="Open Topo" class="basemap-icon">Open Topo
+                  <img src="assets/images/ui/topo.png" alt="Open Topo" class="basemap-icon">Open Topo
                 </button>
             </div>
         </div>
         <div class="tab-content" id="overlays">
             <div class="layer-options">
                 <button class="layer-option" data-layer="Snow-layer">
-                    <img src="snow.png" alt="Snow cover" class="overlay-icon">Snow cover
+                    <img src="assets/images/ui/snow.png" alt="Snow cover" class="overlay-icon">Snow cover
                 </button>
                 <button class="layer-option" data-layer="heatmap-layer">
-                    <img src="heatmap.png" alt="Heatmap" class="overlay-icon">Heatmap
+                    <img src="assets/images/ui/heatmap.png" alt="Heatmap" class="overlay-icon">Heatmap
                 </button>
                 <button class="layer-option" data-layer="Slope-layer">
-                    <img src="slope.png" alt="Slope" class="overlay-icon">Slope
+                    <img src="assets/images/ui/slope.png" alt="Slope" class="overlay-icon">Slope
                 </button>
                 <button class="layer-option" data-layer="sentinel2-layer">
-                    <img src="sentinel.png" alt="Sentinel-2" class="overlay-icon">Sentinel-2
+                    <img src="assets/images/ui/sentinel.png" alt="Sentinel-2" class="overlay-icon">Sentinel-2
                 </button>
                  <button class="layer-option" data-layer="normal-layer">
-                  <img src="normalmap.png" alt="normal-layer" class="overlay-icon">normalmap
+                  <img src="assets/images/ui/normalmap.png" alt="normal-layer" class="overlay-icon">normalmap
                 </button>
                  <button class="layer-option" data-layer="slope-layer">
-                    <img src="slopemap.png" alt="slope-layer" class="overlay-icon">slopemap
+                    <img src="assets/images/ui/slopemap.png" alt="slope-layer" class="overlay-icon">slopemap
                  </button>
                   <button class="layer-option" data-layer="aspect-layer">
-                    <img src="aspect.png" alt="aspect-layer" class="overlay-icon">aspect-layer
+                    <img src="assets/images/ui/aspect.png" alt="aspect-layer" class="overlay-icon">aspect-layer
                    </button>
             </div>
             <div class="terrain-provider">
@@ -110,39 +110,39 @@
         <div class="tab-content" id="features">
             <div class="layer-options">
                   <button class="layer-toggle-button" data-layer="3d-buildings">
-                      <img src="building.png" alt="3D Buildings" class="layer-toggle-icon">
+                      <img src="assets/images/ui/building.png" alt="3D Buildings" class="layer-toggle-icon">
                       3D Buildings
                   </button>
                   <button class="layer-toggle-button" data-layer="contours">
-                      <img src="contours.png" alt="Contour Lines" class="layer-toggle-icon">
+                      <img src="assets/images/ui/contours.png" alt="Contour Lines" class="layer-toggle-icon">
                       Contour Lines
                    </button>
                    <button class="layer-toggle-button" data-layer="refuges-layer">
-                      <img src="shelter.png" alt="Refuges.info" class="layer-toggle-icon">
+                      <img src="assets/images/markers/shelter.png" alt="Refuges.info" class="layer-toggle-icon">
                       Refuges.info
                   </button>
                    <button class="layer-toggle-button" data-layer="wikimedia-photos">
-                       <img src="wikimedia.png" alt="Wikimedia Photos" class="layer-toggle-icon">
+                       <img src="assets/images/ui/wikimedia.png" alt="Wikimedia Photos" class="layer-toggle-icon">
                        Wikimedia Photos
                    </button>
                   <button class="layer-toggle-button" data-layer="paths">
-                      <img src="paths.png" alt="Thunderforest Paths" class="layer-toggle-icon">
+                      <img src="assets/images/ui/paths.png" alt="Thunderforest Paths" class="layer-toggle-icon">
                       Thunderforest Paths
                   </button>
                   <button class="layer-toggle-button" data-layer="thunderforest-parking">
-                    <img src="parking.png" alt="Parking Areas" class="layer-toggle-icon">
+                    <img src="assets/images/markers/parking.png" alt="Parking Areas" class="layer-toggle-icon">
                     Parking Areas
                   </button>
                    <button class="layer-toggle-button" data-layer="thunderforest-lakes">
-                       <img src="lago.png" alt="Lakes" class="layer-toggle-icon">
+                       <img src="assets/images/ui/lago.png" alt="Lakes" class="layer-toggle-icon">
                        Lakes
                   </button>
                   <button class="layer-toggle-button" data-layer="thunderforest-roads">
-                      <img src="roads.png" alt="Roads" class="layer-toggle-icon">
+                      <img src="assets/images/ui/roads.png" alt="Roads" class="layer-toggle-icon">
                       Roads
                    </button>
                   <button class="layer-toggle-button" data-layer="poisth">
-                    <img src="information.png" alt="Points of Interest (thunderforest)" class="layer-toggle-icon">
+                    <img src="assets/images/markers/information.png" alt="Points of Interest (thunderforest)" class="layer-toggle-icon">
                     Points of Interest (thunderforest)
                    </button>
             </div>
@@ -151,33 +151,33 @@
         <div class="directions-control">
           <div class="transport-modes">
                 <button class="transport-mode active" data-mode="foot-hiking">
-                    <img src="walk.png" alt="Hiking"class="mode-icon">
+                    <img src="assets/images/ui/walk.png" alt="Hiking"class="mode-icon">
                 </button>
                 <button class="transport-mode" data-mode="cycling-regular">
-                    <img src="bike.png" alt="Cycling"class="mode-icon">
+                    <img src="assets/images/ui/bike.png" alt="Cycling"class="mode-icon">
                 </button>
                  <button class="transport-mode" data-mode="driving-car">
-                    <img src="car.png" alt="Driving"class="mode-icon">
+                    <img src="assets/images/ui/car.png" alt="Driving"class="mode-icon">
                 </button>
                 <button class="transport-mode" data-mode="line">
-                    <img src="line.png" alt="Straight line" class="mode-icon">
+                    <img src="assets/images/ui/line.png" alt="Straight line" class="mode-icon">
                 </button>
             </div>
             <div class="directions-actions">
                 <button class="direction-action" id="swap-points">
-                    <img src="swap.png" alt="Swap points" class="action-icon">
+                    <img src="assets/images/ui/swap.png" alt="Swap points" class="action-icon">
                     <span>Swap</span>
                 </button>
                  <button class="direction-action" id="remove-last">
-                    <img src="undo.png" alt="Remove last" class="action-icon">
+                    <img src="assets/images/ui/undo.png" alt="Remove last" class="action-icon">
                     <span>Undo</span>
                 </button>
                 <button class="direction-action" id="redo-point">
-                    <img src="redo.png" alt="Redo" class="action-icon">
+                    <img src="assets/images/ui/redo.png" alt="Redo" class="action-icon">
                     <span>Redo</span>
                 </button>  <!-- Added closing tag -->
                 <button class="direction-action" id="clear-route">
-                    <img src="clear.png" alt="Clear all" class="action-icon">
+                    <img src="assets/images/ui/clear.png" alt="Clear all" class="action-icon">
                     <span>Clear</span>
                 </button>
             </div>
@@ -189,6 +189,6 @@
         </div>
     </div>
     <ul id="profile-display"></ul>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="scripts/main/app.js"></script>
 </body>
 </html>
