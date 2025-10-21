@@ -75,7 +75,7 @@ const map = new maplibregl.Map({
             },
             'mapterhorn-dem': {
                 type: 'raster-dem',
-                encoding: 'mapbox',
+                encoding: 'terrarium',
                 tiles: ['mapterhorn://{z}/{x}/{y}'],
                 tileSize: 512,
                 maxzoom: 14,
