@@ -2,7 +2,7 @@
 (function() {
   const DEBUG = true;
   const EXTENT = 8192;
-  const TILE_SIZE = 256;
+  const TILE_SIZE = 512;
   const DEM_MAX_ZOOM = 16; // native DEM max zoom
   
   // Global state variables
@@ -323,6 +323,34 @@
     }
   };
   
+  // Configure DEM source shared between terrain, hillshade, and contour layers.
+  const demSource = new mlcontour.DemSource({
+    url: 'pmtiles://https://acalcutt.github.io/maplibre-contour-pmtiles/pmtiles/terrain-tiles.pmtiles',
+    encoding: 'mapbox',
+    maxzoom: 12,
+    worker: true
+  });
+
+  demSource.setupMaplibre(maplibregl);
+
+  const contourTilesUrl = demSource.contourProtocolUrl({
+    multiplier: 1,
+    overzoom: 1,
+    thresholds: {
+      4: [500, 2000],
+      8: [250, 1000],
+      14: [200, 800],
+      15: [100, 400],
+      16: [50, 200],
+      17: [20, 100]
+    },
+    elevationKey: 'ele',
+    levelKey: 'level',
+    contourLayer: 'contours'
+  });
+
+  const sharedDemTiles = demSource.sharedDemProtocolUrl;
+
   // Map setup and initialization.
   const map = new maplibregl.Map({
     container: 'map',
@@ -339,14 +367,63 @@
         },
         terrain: {
           type: 'raster-dem',
-          tiles: ['https://tiles.wifidb.net/data/swissalti3d_terrainrgb_0-16/{z}/{x}/{y}.webp'],
-          tileSize: 256,
-          maxzoom: 16,
-          encoding: 'mapbox'
+          tiles: [sharedDemTiles],
+          tileSize: 512,
+          maxzoom: 12,
+          encoding: 'mapbox',
+          attribution: 'JAXA AW3D30'
+        },
+        hillshadeSource: {
+          type: 'raster-dem',
+          tiles: [sharedDemTiles],
+          tileSize: 512,
+          maxzoom: 12,
+          encoding: 'mapbox',
+          attribution: 'JAXA AW3D30'
+        },
+        contourSource: {
+          type: 'vector',
+          tiles: [contourTilesUrl],
+          maxzoom: 17,
+          attribution: 'GEBCO'
         }
       },
       layers: [
-        { id: 'swisstopo', type: 'raster', source: 'swisstopo', paint: {'raster-opacity': 1.0} }
+        { id: 'swisstopo', type: 'raster', source: 'swisstopo', paint: {'raster-opacity': 1.0} },
+        {
+          id: 'hills',
+          type: 'hillshade',
+          source: 'hillshadeSource',
+          layout: { visibility: 'visible' },
+          paint: { 'hillshade-exaggeration': 0.25 }
+        },
+        {
+          id: 'contours',
+          type: 'line',
+          source: 'contourSource',
+          'source-layer': 'contours',
+          paint: {
+            'line-opacity': 0.5,
+            'line-width': ['match', ['get', 'level'], 1, 1, 0.5]
+          }
+        },
+        {
+          id: 'contour-text',
+          type: 'symbol',
+          source: 'contourSource',
+          'source-layer': 'contours',
+          filter: ['>', ['get', 'level'], 0],
+          paint: {
+            'text-halo-color': 'white',
+            'text-halo-width': 1
+          },
+          layout: {
+            'symbol-placement': 'line',
+            'text-size': 10,
+            'text-field': ['concat', ['number-format', ['get', 'ele'], {}], ' m'],
+            'text-font': ['Noto Sans Bold']
+          }
+        }
       ],
       terrain: { source: 'terrain', exaggeration: 1.0 },
       background: { paint: { "background-color": "#ffffff" } }
@@ -372,7 +449,7 @@
   
   map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }));
   map.addControl(new maplibregl.GlobeControl());
-  map.addControl(new maplibregl.TerrainControl());
+  map.addControl(new maplibregl.TerrainControl({ source: 'terrain' }));
   
   // Button click event listeners to toggle rendering modes.
   document.getElementById('normalBtn').addEventListener('click', () => { 
