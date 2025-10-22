@@ -5,6 +5,7 @@ import { processOsmData, getOverpassQuery } from '../modules/signpost.js';
 import { layerStyles, addLayersToMap } from '../modules/layers.js';
 import { DirectionsManager } from '../modules/directions.js';
 import { initializeMap, setupMapProtocols, getContourTileUrl } from './mapConfig.js';
+import '../modules/terrain/mapterhornFetch.js';
 
 
 // Constants
