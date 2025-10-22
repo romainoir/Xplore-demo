@@ -2,11 +2,11 @@ import { layerStyles } from '../modules/layers.js';
 import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js';
 import {
     setupContourDemProtocols,
-    getContourTileUrl as getContourTileUrlForTerrain,
+    getContourTileUrl,
     getSharedDemProtocolUrl
 } from '../modules/terrain/contourSources.js';
 
-export { getContourTileUrlForTerrain as getContourTileUrl } from '../modules/terrain/contourSources.js';
+export { getContourTileUrl } from '../modules/terrain/contourSources.js';
 
 function createMapSources() {
     return {
@@ -52,7 +52,7 @@ function createMapSources() {
         },
         'contours': {
             type: 'vector',
-            tiles: [getContourTileUrlForTerrain('dem')],
+            tiles: [getContourTileUrl('dem')],
             maxzoom: 18
         },
         'buildings': {
