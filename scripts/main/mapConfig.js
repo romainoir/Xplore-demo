@@ -1,55 +1,12 @@
 import { layerStyles } from '../modules/layers.js';
 import { setupTerrainProtocol, setupMapterhornProtocol } from '../modules/terrain/terrainprotocol.js';
-import { demSourceHooks } from '../modules/terrain/demFetchers.js';
+import {
+    setupContourDemProtocols,
+    getContourTileUrl as getContourTileUrlForTerrain,
+    getSharedDemProtocolUrl
+} from '../modules/terrain/contourSources.js';
 
-const CONTOUR_PROTOCOL_BASE_OPTIONS = {
-    thresholds: {
-        11: [50, 200],
-        12: [50, 200],
-        13: [25, 100],
-        14: [25, 100],
-        15: [10, 50]
-    },
-    elevationKey: 'ele',
-    levelKey: 'level',
-    contourLayer: 'contours'
-};
-
-function createDemSource(options) {
-    return new mlcontour.DemSource({
-        ...options,
-        ...demSourceHooks
-    });
-}
-
-const contourDemSources = {
-    'dem': createDemSource({
-        url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-        encoding: 'terrarium',
-        maxzoom: 14,
-        worker: false
-    }),
-    'mapterhorn-dem': createDemSource({
-        url: 'mapterhorn://{z}/{x}/{y}',
-        encoding: 'terrarium',
-        maxzoom: 14,
-        worker: false
-    }),
-    'custom-dem': createDemSource({
-        url: 'customdem://{z}/{x}/{y}',
-        encoding: 'mapbox',
-        maxzoom: 17,
-        worker: false
-    })
-};
-
-function getContourDemSource(terrainId) {
-    return contourDemSources[terrainId] || contourDemSources['dem'];
-}
-
-export function getContourTileUrl(terrainId) {
-    return getContourDemSource(terrainId).contourProtocolUrl(CONTOUR_PROTOCOL_BASE_OPTIONS);
-}
+export { getContourTileUrlForTerrain as getContourTileUrl } from '../modules/terrain/contourSources.js';
 
 function createMapSources() {
     return {
@@ -89,13 +46,13 @@ function createMapSources() {
         'dem': {
             type: 'raster-dem',
             encoding: 'terrarium',
-            tiles: [getContourDemSource('dem').sharedDemProtocolUrl],
+            tiles: [getSharedDemProtocolUrl('dem')],
             maxzoom: 14,
             tileSize: 256
         },
         'contours': {
             type: 'vector',
-            tiles: [getContourTileUrl('dem')],
+            tiles: [getContourTileUrlForTerrain('dem')],
             maxzoom: 18
         },
         'buildings': {
@@ -266,7 +223,7 @@ export function initializeMap(maplibregl) {
 }
 
 export function setupMapProtocols(maplibregl) {
-    Object.values(contourDemSources).forEach(source => source.setupMaplibre(maplibregl, demSourceHooks));
+    setupContourDemProtocols(maplibregl);
     setupTerrainProtocol(maplibregl);
     setupMapterhornProtocol(maplibregl);
 }
